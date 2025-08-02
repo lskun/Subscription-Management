@@ -1,26 +1,10 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useSubscriptionStore } from "@/store/subscriptionStore"
 import { useSettingsStore } from "@/store/settingsStore"
 import {
   getDateRangePresets
 } from "@/lib/expense-analytics"
-import {
-  getApiMonthlyExpenses,
-  getApiCategoryExpenses,
-  getApiMonthlyCategoryExpenses,
-  getApiYearlyCategoryExpenses,
-  calculateYearlyExpensesFromMonthly,
-  MonthlyExpense,
-  YearlyExpense,
-  CategoryExpense
-} from "@/lib/expense-analytics-api"
-import {
-  convertMonthlyExpensesToInfo,
-  calculateQuarterlyExpenses,
-  calculateYearlyExpenses,
-  filterRecentExpenses
-} from "@/lib/expense-info-analytics"
-import { ExpenseInfoData } from "@/components/charts/ExpenseInfoCards"
+import { useExpenseReportsData } from "@/hooks/useExpenseReportsData"
 import { ExpenseTrendChart } from "@/components/charts/ExpenseTrendChart"
 import { YearlyTrendChart } from "@/components/charts/YearlyTrendChart"
 import { CategoryPieChart } from "@/components/charts/CategoryPieChart"
@@ -32,26 +16,30 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 
 export function ExpenseReportsPage() {
-  const { subscriptions, categories, fetchSubscriptions, fetchCategories } = useSubscriptionStore()
-  const { currency: userCurrency, fetchSettings } = useSettingsStore()
+  // 使用 useCallback 来稳定函数引用，避免不必要的重新渲染
+  const fetchCategories = useSubscriptionStore(useCallback((state) => state.fetchCategories, []))
+  const fetchSettings = useSettingsStore(useCallback((state) => state.fetchSettings, []))
+  const userCurrency = useSettingsStore(useCallback((state) => state.currency, []))
   
   // Filter states
-  const [selectedDateRange, setSelectedDateRange] = useState('Last 12 Months')
-  const [selectedYearlyDateRange, setSelectedYearlyDateRange] = useState(() => {
+  const [selectedDateRange] = useState('Last 12 Months')
+  const [selectedYearlyDateRange] = useState(() => {
     const currentYear = new Date().getFullYear()
     return `${currentYear - 2} - ${currentYear}`
   })
 
-  // Fetch data when component mounts
+  // Fetch data when component mounts - optimized to prevent duplicate requests
   useEffect(() => {
     const initializeData = async () => {
-      await fetchSubscriptions()
-      await fetchCategories()
-      await fetchSettings()
+      // Use Promise.all to fetch data in parallel and avoid sequential requests
+      await Promise.all([
+        fetchCategories(),
+        fetchSettings()
+      ])
     }
 
     initializeData()
-  }, []) // Remove dependencies to prevent infinite re-renders
+  }, [fetchCategories, fetchSettings]) // Add dependencies but they are stable functions
 
   // Get date range presets
   const dateRangePresets = getDateRangePresets()
@@ -78,238 +66,154 @@ export function ExpenseReportsPage() {
     return yearlyDateRangePresets.find(preset => preset.label === selectedYearlyDateRange)
       || yearlyDateRangePresets[0] // Default to Recent 3 Years
   }, [selectedYearlyDateRange, yearlyDateRangePresets])
-  
-  // State for API data
-  const [monthlyExpenses, setMonthlyExpenses] = useState<MonthlyExpense[]>([])
-  const [yearlyExpenses, setYearlyExpenses] = useState<YearlyExpense[]>([])
-  const [categoryExpenses, setCategoryExpenses] = useState<CategoryExpense[]>([])
-  const [yearlyCategoryExpenses, setYearlyCategoryExpenses] = useState<CategoryExpense[]>([])
-  const [monthlyCategoryExpenses, setMonthlyCategoryExpenses] = useState<{ month: string; monthKey: string; year: number; categories: { [categoryName: string]: number }; total: number }[]>([])
-  const [yearlyGroupedCategoryExpenses, setYearlyGroupedCategoryExpenses] = useState<{ year: number; categories: { [categoryName: string]: number }; total: number }[]>([])
 
-  // State for expense info data
-  const [expenseInfoData, setExpenseInfoData] = useState<{
-    monthly: ExpenseInfoData[]
-    quarterly: ExpenseInfoData[]
-    yearly: ExpenseInfoData[]
-  }>({
-    monthly: [],
-    quarterly: [],
-    yearly: []
+  // 使用新的 hook 来获取所有费用报告数据
+  const {
+    monthlyExpenses,
+    yearlyExpenses,
+    categoryExpenses,
+    expenseInfo: rawExpenseInfoData,
+    isLoading,
+    error,
+    refetch
+  } = useExpenseReportsData({
+    monthlyStartDate: currentDateRange.startDate,
+    monthlyEndDate: currentDateRange.endDate,
+    yearlyStartDate: currentYearlyDateRange.startDate,
+    yearlyEndDate: currentYearlyDateRange.endDate,
+    currency: userCurrency,
+    includeMonthlyExpenses: true,
+    includeYearlyExpenses: true,
+    includeCategoryExpenses: true,
+    includeExpenseInfo: true,
+    autoFetch: true
   })
 
-  const [isLoadingExpenses, setIsLoadingExpenses] = useState(false)
-  const [isLoadingYearlyExpenses, setIsLoadingYearlyExpenses] = useState(false)
-  const [isLoadingCategoryExpenses, setIsLoadingCategoryExpenses] = useState(false)
-  const [isLoadingYearlyCategoryExpenses, setIsLoadingYearlyCategoryExpenses] = useState(false)
-  const [isLoadingMonthlyCategoryExpenses, setIsLoadingMonthlyCategoryExpenses] = useState(false)
-  const [isLoadingYearlyGroupedCategoryExpenses, setIsLoadingYearlyGroupedCategoryExpenses] = useState(false)
-  const [isLoadingExpenseInfo, setIsLoadingExpenseInfo] = useState(false)
-  const [expenseError, setExpenseError] = useState<string | null>(null)
-  const [yearlyExpenseError, setYearlyExpenseError] = useState<string | null>(null)
-  const [categoryExpenseError, setCategoryExpenseError] = useState<string | null>(null)
-  const [yearlyCategoryExpenseError, setYearlyCategoryExpenseError] = useState<string | null>(null)
-  const [monthlyCategoryExpenseError, setMonthlyCategoryExpenseError] = useState<string | null>(null)
-  const [yearlyGroupedCategoryExpenseError, setYearlyGroupedCategoryExpenseError] = useState<string | null>(null)
-  const [expenseInfoError, setExpenseInfoError] = useState<string | null>(null)
+  // 转换 expenseInfo 数据格式以匹配 ExpenseInfoCards 组件的期望
+  const expenseInfoData = useMemo(() => {
+    if (!rawExpenseInfoData) {
+      return {
+        monthly: [],
+        quarterly: [],
+        yearly: []
+      }
+    }
 
-
-
-  // Load expense info data (recent periods)
-  useEffect(() => {
-    const loadExpenseInfoData = async () => {
-      setIsLoadingExpenseInfo(true)
-      setExpenseInfoError(null)
-
-      try {
-        // Get recent 12 months of data for expense info
-        const endDate = new Date()
-        const startDate = new Date()
-        startDate.setMonth(startDate.getMonth() - 12)
-
-        const allMonthlyData = await getApiMonthlyExpenses(startDate, endDate, userCurrency)
-
-        // Process API data
-        if (allMonthlyData && allMonthlyData.length > 0) {
-          const { monthlyExpenses: recentMonthly, quarterlyExpenses: recentQuarterly, yearlyExpenses: recentYearly } = filterRecentExpenses(allMonthlyData)
-
-          // Convert to expense info format
-          const monthlyInfo = convertMonthlyExpensesToInfo(recentMonthly, userCurrency)
-          const quarterlyInfo = calculateQuarterlyExpenses(recentQuarterly, userCurrency)
-          const yearlyInfo = calculateYearlyExpenses(recentYearly, userCurrency)
-
-          setExpenseInfoData({
-            monthly: monthlyInfo,
-            quarterly: quarterlyInfo,
-            yearly: yearlyInfo
-          })
-        } else {
-          // No data available, set empty state
-          setExpenseInfoData({
-            monthly: [],
-            quarterly: [],
-            yearly: []
-          })
+    const convertToExpenseInfoData = (
+      data: any[], 
+      periodType: 'monthly' | 'quarterly' | 'yearly'
+    ) => {
+      return data.map((item: any) => {
+        // 计算日均费用
+        let daysInPeriod = 30 // 默认月度
+        if (periodType === 'quarterly') {
+          daysInPeriod = 90
+        } else if (periodType === 'yearly') {
+          daysInPeriod = 365
         }
 
-      } catch (error) {
-        console.error('Failed to load expense info data:', error)
-        setExpenseInfoError(error instanceof Error ? error.message : 'Failed to load expense info data')
+        // 计算期间的开始和结束日期
+        let startDate = ''
+        let endDate = ''
+        
+        if (periodType === 'monthly') {
+          const [year, month] = item.period.split('-')
+          startDate = `${year}-${month}-01`
+          const lastDay = new Date(parseInt(year), parseInt(month), 0).getDate()
+          endDate = `${year}-${month}-${lastDay.toString().padStart(2, '0')}`
+        } else if (periodType === 'quarterly') {
+          const [year, quarter] = item.period.split('-Q')
+          const quarterNum = parseInt(quarter)
+          const startMonth = (quarterNum - 1) * 3 + 1
+          const endMonth = quarterNum * 3
+          startDate = `${year}-${startMonth.toString().padStart(2, '0')}-01`
+          const lastDay = new Date(parseInt(year), endMonth, 0).getDate()
+          endDate = `${year}-${endMonth.toString().padStart(2, '0')}-${lastDay.toString().padStart(2, '0')}`
+        } else if (periodType === 'yearly') {
+          startDate = `${item.period}-01-01`
+          endDate = `${item.period}-12-31`
+        }
 
-        // Set empty state on error
-        setExpenseInfoData({
-          monthly: [],
-          quarterly: [],
-          yearly: []
-        })
-      } finally {
-        setIsLoadingExpenseInfo(false)
-      }
+        return {
+          period: item.period,
+          periodType,
+          totalSpent: item.amount || 0,
+          dailyAverage: (item.amount || 0) / daysInPeriod,
+          activeSubscriptions: 0, // 暂时设为0，后续可以从其他数据源获取
+          paymentCount: 0, // 暂时设为0，后续可以从其他数据源获取
+          startDate,
+          endDate,
+          currency: item.currency || userCurrency
+        }
+      })
     }
 
-    loadExpenseInfoData()
-  }, [userCurrency])
-
-  // Load monthly expense data from API
-  useEffect(() => {
-    const loadMonthlyExpenseData = async () => {
-      setIsLoadingExpenses(true)
-      setExpenseError(null)
-
-      try {
-        // Fetch monthly expenses from API
-        const monthlyData = await getApiMonthlyExpenses(currentDateRange.startDate, currentDateRange.endDate, userCurrency);
-        setMonthlyExpenses(monthlyData)
-
-      } catch (error) {
-        console.error('Failed to load monthly expense data:', error)
-        setExpenseError(error instanceof Error ? error.message : 'Failed to load monthly expense data')
-      } finally {
-        setIsLoadingExpenses(false)
-      }
+    return {
+      monthly: convertToExpenseInfoData(rawExpenseInfoData.monthly || [], 'monthly'),
+      quarterly: convertToExpenseInfoData(rawExpenseInfoData.quarterly || [], 'quarterly'),
+      yearly: convertToExpenseInfoData(rawExpenseInfoData.yearly || [], 'yearly')
     }
+  }, [rawExpenseInfoData, userCurrency])
 
-    const loadMonthlyCategoryExpenseData = async () => {
-      setIsLoadingMonthlyCategoryExpenses(true)
-      setMonthlyCategoryExpenseError(null)
+  // 转换数据格式以匹配图表组件的期望
+  const adaptedMonthlyExpenses = useMemo(() => {
+    return monthlyExpenses.map(expense => ({
+      monthKey: expense.month,
+      month: expense.month,
+      year: expense.year,
+      amount: expense.total,
+      subscriptionCount: 0 // 暂时设为0，后续可以从其他数据源获取
+    }))
+  }, [monthlyExpenses])
 
-      try {
-        // Fetch monthly category expenses from API
-        const monthlyCategoryData = await getApiMonthlyCategoryExpenses(currentDateRange.startDate, currentDateRange.endDate, userCurrency);
-        setMonthlyCategoryExpenses(monthlyCategoryData)
+  const adaptedYearlyExpenses = useMemo(() => {
+    return yearlyExpenses.map(expense => ({
+      year: expense.year,
+      amount: expense.total,
+      subscriptionCount: 0 // 暂时设为0，后续可以从其他数据源获取
+    }))
+  }, [yearlyExpenses])
 
-      } catch (error) {
-        console.error('Failed to load monthly category expense data:', error)
-        setMonthlyCategoryExpenseError(error instanceof Error ? error.message : 'Failed to load monthly category expense data')
-      } finally {
-        setIsLoadingMonthlyCategoryExpenses(false)
-      }
-    }
+  const adaptedCategoryExpenses = useMemo(() => {
+    return categoryExpenses.map(expense => ({
+      category: expense.category,
+      amount: expense.total,
+      percentage: 0, // 需要计算百分比
+      subscriptionCount: expense.subscriptionCount
+    }))
+  }, [categoryExpenses])
 
-    loadMonthlyExpenseData()
-    loadMonthlyCategoryExpenseData()
-  }, [currentDateRange, userCurrency])
+  // 计算分类费用的百分比
+  const categoryExpensesWithPercentage = useMemo(() => {
+    const total = adaptedCategoryExpenses.reduce((sum, item) => sum + item.amount, 0)
+    return adaptedCategoryExpenses.map(item => ({
+      ...item,
+      percentage: total > 0 ? (item.amount / total) * 100 : 0
+    }))
+  }, [adaptedCategoryExpenses])
 
-  // Load category expense data from API
-  useEffect(() => {
-    const loadCategoryExpenseData = async () => {
-      setIsLoadingCategoryExpenses(true)
-      setCategoryExpenseError(null)
-
-      try {
-        // Fetch category expenses from API
-        const categoryData = await getApiCategoryExpenses(currentDateRange.startDate, currentDateRange.endDate, userCurrency);
-        setCategoryExpenses(categoryData)
-
-      } catch (error) {
-        console.error('Failed to load category expense data:', error)
-        setCategoryExpenseError(error instanceof Error ? error.message : 'Failed to load category expense data')
-      } finally {
-        setIsLoadingCategoryExpenses(false)
-      }
-    }
-
-    loadCategoryExpenseData()
-  }, [currentDateRange, userCurrency])
-
-  // Load yearly expense data from API (using separate date range)
-  useEffect(() => {
-    const loadYearlyExpenseData = async () => {
-      setIsLoadingYearlyExpenses(true)
-      setYearlyExpenseError(null)
-
-      try {
-        // Fetch yearly expenses using the 3-year date range
-        const yearlyMonthlyData = await getApiMonthlyExpenses(
-          currentYearlyDateRange.startDate,
-          currentYearlyDateRange.endDate,
-          userCurrency
-        );
-
-        // Calculate yearly expenses from monthly data
-        const yearlyData = calculateYearlyExpensesFromMonthly(yearlyMonthlyData)
-        setYearlyExpenses(yearlyData)
+  // 为了兼容现有组件，创建一些别名和数据映射
+  const monthlyCategoryExpenses = adaptedCategoryExpenses
+  const yearlyGroupedCategoryExpenses: any[] = []
+  
+  // 加载状态别名
+  const isLoadingExpenses = isLoading
+  const isLoadingYearlyExpenses = isLoading
+  const isLoadingCategoryExpenses = isLoading
+  const isLoadingYearlyCategoryExpenses = isLoading
+  const isLoadingExpenseInfo = isLoading
+  
+  // 错误状态别名
+  const expenseError = error
+  const yearlyExpenseError = error
+  const categoryExpenseError = error
+  const yearlyCategoryExpenseError = error
+  const expenseInfoError = error
 
 
 
-      } catch (error) {
-        console.error('Failed to load yearly expense data:', error)
-        setYearlyExpenseError(error instanceof Error ? error.message : 'Failed to load yearly expense data')
-      } finally {
-        setIsLoadingYearlyExpenses(false)
-      }
-    }
-
-    loadYearlyExpenseData()
-  }, [currentYearlyDateRange, userCurrency])
-
-  // Load yearly category expense data from API
-  useEffect(() => {
-    const loadYearlyCategoryExpenseData = async () => {
-      setIsLoadingYearlyCategoryExpenses(true)
-      setYearlyCategoryExpenseError(null)
-
-      try {
-        // Fetch yearly category expenses from API using yearly date range
-        const yearlyCategoryData = await getApiCategoryExpenses(
-          currentYearlyDateRange.startDate,
-          currentYearlyDateRange.endDate,
-          userCurrency
-        );
-        setYearlyCategoryExpenses(yearlyCategoryData)
-
-      } catch (error) {
-        console.error('Failed to load yearly category expense data:', error)
-        setYearlyCategoryExpenseError(error instanceof Error ? error.message : 'Failed to load yearly category expense data')
-      } finally {
-        setIsLoadingYearlyCategoryExpenses(false)
-      }
-    }
-
-    const loadYearlyGroupedCategoryExpenseData = async () => {
-      setIsLoadingYearlyGroupedCategoryExpenses(true)
-      setYearlyGroupedCategoryExpenseError(null)
-
-      try {
-        // Fetch yearly grouped category expenses from API
-        const yearlyGroupedCategoryData = await getApiYearlyCategoryExpenses(
-          currentYearlyDateRange.startDate,
-          currentYearlyDateRange.endDate,
-          userCurrency
-        );
-        setYearlyGroupedCategoryExpenses(yearlyGroupedCategoryData)
-
-      } catch (error) {
-        console.error('Failed to load yearly grouped category expense data:', error)
-        setYearlyGroupedCategoryExpenseError(error instanceof Error ? error.message : 'Failed to load yearly grouped category expense data')
-      } finally {
-        setIsLoadingYearlyGroupedCategoryExpenses(false)
-      }
-    }
-
-    loadYearlyCategoryExpenseData()
-    loadYearlyGroupedCategoryExpenseData()
-  }, [currentYearlyDateRange, userCurrency])
+  // 移除重复的useEffect，因为useExpenseReportsData已经会在参数变化时自动重新获取数据
+  // 这样可以避免重复请求，确保在React严格模式下只有2次请求而不是4次
 
   return (
     <div className="space-y-6">
@@ -396,7 +300,7 @@ export function ExpenseReportsPage() {
             <TabsContent value="monthly" className="space-y-4">
               <div className="grid gap-4 grid-cols-1 xl:grid-cols-2">
                 <ExpenseTrendChart
-                  data={monthlyExpenses}
+                  data={adaptedMonthlyExpenses}
                   categoryData={monthlyCategoryExpenses}
                   currency={userCurrency}
                 />
@@ -420,7 +324,7 @@ export function ExpenseReportsPage() {
                   </Card>
                 ) : (
                   <CategoryPieChart
-                    data={categoryExpenses}
+                    data={categoryExpensesWithPercentage}
                     currency={userCurrency}
                   />
                 )}
@@ -445,7 +349,7 @@ export function ExpenseReportsPage() {
               ) : (
                 <div className="grid gap-4 grid-cols-1 xl:grid-cols-2">
                   <YearlyTrendChart
-                    data={yearlyExpenses}
+                    data={adaptedYearlyExpenses}
                     categoryData={yearlyGroupedCategoryExpenses}
                     currency={userCurrency}
                   />
@@ -469,7 +373,7 @@ export function ExpenseReportsPage() {
                     </Card>
                   ) : (
                     <CategoryPieChart
-                      data={yearlyCategoryExpenses}
+                      data={categoryExpensesWithPercentage}
                       currency={userCurrency}
                     />
                   )}

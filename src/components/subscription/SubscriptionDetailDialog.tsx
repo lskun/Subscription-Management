@@ -43,13 +43,13 @@ import { PaymentHistorySection } from "./PaymentHistorySection"
 
 // Use the correct types from the store
 interface CategoryOption {
-  id: number
+  id: string
   value: string
   label: string
 }
 
 interface PaymentMethodOption {
-  id: number
+  id: string
   value: string
   label: string
 }
@@ -58,16 +58,16 @@ interface SubscriptionDetailDialogProps {
   subscription: Subscription | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  onEdit?: (id: number) => void
-  onManualRenew?: (id: number) => void
+  onEdit?: (id: string) => void
+  onManualRenew?: (id: string) => void
 }
 
 interface ContentComponentProps {
   subscription: Subscription
   categories: CategoryOption[]
   paymentMethods: PaymentMethodOption[]
-  onEdit?: (id: number) => void
-  onManualRenew?: (id: number) => void
+  onEdit?: (id: string) => void
+  onManualRenew?: (id: string) => void
   onOpenChange: (open: boolean) => void
 }
 
@@ -385,7 +385,7 @@ export function SubscriptionDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md sm:max-w-lg max-h-[85vh] overflow-y-auto p-4">
+      <DialogContent className="max-w-md sm:max-w-3xl max-h-[85vh] overflow-y-auto p-4">
         <DialogHeader className="pb-3">
           <DialogTitle className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
             <span className="text-base sm:text-lg">{subscription.name}</span>

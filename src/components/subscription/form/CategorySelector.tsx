@@ -19,9 +19,9 @@ import {
 import { FormField } from "./FormField"
 
 interface CategorySelectorProps {
-  value: number
-  onChange: (value: number) => void
-  categories: Array<{ id: number; value: string; label: string }>
+  value: string
+  onChange: (value: string) => void
+  categories: Array<{ id: string; value: string; label: string }>
   error?: string
 }
 

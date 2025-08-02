@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { apiClient } from '@/utils/api-client'
+import { supabase } from '@/lib/supabase'
 import { Subscription } from './subscriptionStore'
 
 interface OptimisticUpdate {
@@ -48,8 +48,13 @@ export const optimisticUpdateSubscription = async (
   })
   
   try {
-    // Make API call
-    await apiClient.put(`/protected/subscriptions/${id}`, data)
+    // Make Supabase call
+    const { error } = await supabase
+      .from('subscriptions')
+      .update(data)
+      .eq('id', id)
+    
+    if (error) throw error
     
     // Remove optimistic update and trigger success
     useOptimisticStore.getState().removeOptimisticUpdate(updateId)
@@ -78,8 +83,14 @@ export const optimisticCreateSubscription = async (
   })
   
   try {
-    // Make API call
-    const result = await apiClient.post<{ id: number }>('/protected/subscriptions', data)
+    // Make Supabase call
+    const { data: result, error } = await supabase
+      .from('subscriptions')
+      .insert({ ...data, user_id: (await supabase.auth.getUser()).data.user?.id })
+      .select()
+      .single()
+    
+    if (error) throw error
     
     // Remove optimistic update and trigger success
     useOptimisticStore.getState().removeOptimisticUpdate(updateId)
@@ -107,8 +118,13 @@ export const optimisticDeleteSubscription = async (
   })
   
   try {
-    // Make API call
-    await apiClient.delete(`/protected/subscriptions/${id}`)
+    // Make Supabase call
+    const { error } = await supabase
+      .from('subscriptions')
+      .delete()
+      .eq('id', id)
+    
+    if (error) throw error
     
     // Remove optimistic update and trigger success
     useOptimisticStore.getState().removeOptimisticUpdate(updateId)

@@ -16,8 +16,8 @@ export interface PaymentMethod {
 
 // 支付记录相关类型定义
 export interface PaymentRecordApi {
-  id: number
-  subscription_id: number
+  id: string
+  subscription_id: string
   subscription_name: string
   subscription_plan: string
   payment_date: string
@@ -31,8 +31,8 @@ export interface PaymentRecordApi {
 }
 
 export interface PaymentRecord {
-  id: number
-  subscriptionId: number
+  id: string
+  subscriptionId: string
   subscriptionName: string
   subscriptionPlan: string
   paymentDate: string

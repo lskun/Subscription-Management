@@ -1,38 +1,28 @@
-import { apiClient } from '@/utils/api-client'
 import { useToast } from "@/hooks/use-toast"
 import { useState } from 'react'
 import { useConfirmation } from '@/hooks/use-confirmation'
+import { supabasePaymentHistoryService, PaymentHistoryRecord } from '@/services/supabasePaymentHistoryService'
 
 export const usePaymentOperations = (
-  apiKey: string | undefined,
   fetchPaymentHistory: () => void
 ) => {
   const { toast } = useToast()
-  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
 
-  const handleAddPayment = async (paymentData: any) => {
-    if (!apiKey) {
-      toast({
-        title: "Error",
-        description: "API key not configured. Please set your API key in Settings.",
-        variant: "destructive",
-      })
-      throw new Error('API key not configured')
-    }
-
+  const handleAddPayment = async (paymentData: Omit<PaymentHistoryRecord, 'id' | 'userId' | 'createdAt'>) => {
     try {
-      await apiClient.post('/protected/payment-history', paymentData)
+      await supabasePaymentHistoryService.createPaymentHistory(paymentData)
       
       toast({
-        title: "Success",
-        description: "Payment record created successfully",
+        title: "成功",
+        description: "支付记录创建成功",
       })
       fetchPaymentHistory()
       return true
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create payment'
+      const errorMessage = err instanceof Error ? err.message : '创建支付记录失败'
       toast({
-        title: "Error",
+        title: "错误",
         description: errorMessage,
         variant: "destructive",
       })
@@ -40,62 +30,42 @@ export const usePaymentOperations = (
     }
   }
 
-  const handleEditPayment = async (paymentId: number, paymentData: any) => {
-    if (!apiKey) {
-      toast({
-        title: "Error",
-        description: "API key not configured. Please set your API key in Settings.",
-        variant: "destructive",
-      })
-      throw new Error('API key not configured')
-    }
-
+  const handleEditPayment = async (paymentId: string, paymentData: Partial<PaymentHistoryRecord>) => {
     try {
-      await apiClient.put(`/protected/payment-history/${paymentId}`, paymentData)
+      await supabasePaymentHistoryService.updatePaymentHistory(paymentId, paymentData)
       
       toast({
-        title: "Success",
-        description: "Payment record updated successfully",
+        title: "成功",
+        description: "支付记录更新成功",
       })
       fetchPaymentHistory()
       return true
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to update payment'
+      const errorMessage = err instanceof Error ? err.message : '更新支付记录失败'
       toast({
-        title: "Error",
+        title: "错误",
         description: errorMessage,
         variant: "destructive",
       })
       throw err
     }
   }
-
-
 
   const handleDeletePayment = async () => {
     if (!deleteTarget) return
     
-    if (!apiKey) {
-      toast({
-        title: "Error",
-        description: "API key not configured. Please set your API key in Settings.",
-        variant: "destructive",
-      })
-      return
-    }
-
     try {
-      await apiClient.delete(`/protected/payment-history/${deleteTarget.id}`)
+      await supabasePaymentHistoryService.deletePaymentHistory(deleteTarget.id)
       
       toast({
-        title: "Success",
-        description: "Payment record deleted successfully",
+        title: "成功",
+        description: "支付记录删除成功",
       })
       fetchPaymentHistory()
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to delete payment'
+      const errorMessage = err instanceof Error ? err.message : '删除支付记录失败'
       toast({
-        title: "Error",
+        title: "错误",
         description: errorMessage,
         variant: "destructive",
       })
@@ -105,13 +75,13 @@ export const usePaymentOperations = (
   }
   
   const deleteConfirmation = useConfirmation({
-    title: "Delete Payment Record",
-    description: deleteTarget ? `Are you sure you want to delete this payment record for ${deleteTarget.name}? This action cannot be undone.` : "",
-    confirmText: "Delete",
+    title: "删除支付记录",
+    description: deleteTarget ? `确定要删除 ${deleteTarget.name} 的这条支付记录吗？此操作无法撤销。` : "",
+    confirmText: "删除",
     onConfirm: handleDeletePayment,
   })
   
-  const handleDeleteClick = (paymentId: number, subscriptionName: string) => {
+  const handleDeleteClick = (paymentId: string, subscriptionName: string) => {
     setDeleteTarget({ id: paymentId, name: subscriptionName })
     deleteConfirmation.openDialog()
   }

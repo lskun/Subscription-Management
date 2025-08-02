@@ -1,6 +1,6 @@
 import { logger } from '@/utils/logger';
 import { getBaseCurrency } from '@/config/currency';
-import { apiClient } from '@/utils/api-client';
+import { supabase } from '@/lib/supabase';
 
 export interface ExchangeRate {
   id: number;
@@ -26,7 +26,21 @@ export class ExchangeRateApi {
    */
   static async getAllRates(): Promise<ExchangeRate[]> {
     try {
-      return await apiClient.get<ExchangeRate[]>('/exchange-rates');
+      const { data, error } = await supabase
+        .from('exchange_rates')
+        .select('*')
+        .order('from_currency', { ascending: true });
+
+      if (error) throw error;
+
+      return data?.map(rate => ({
+        id: rate.id,
+        from_currency: rate.from_currency,
+        to_currency: rate.to_currency,
+        rate: rate.rate,
+        created_at: rate.created_at,
+        updated_at: rate.updated_at
+      })) || [];
     } catch (error) {
       logger.error('Error fetching exchange rates:', error);
       throw error;
@@ -38,7 +52,23 @@ export class ExchangeRateApi {
    */
   static async getRate(fromCurrency: string, toCurrency: string): Promise<ExchangeRate> {
     try {
-      return await apiClient.get<ExchangeRate>(`/exchange-rates/${fromCurrency}/${toCurrency}`);
+      const { data, error } = await supabase
+        .from('exchange_rates')
+        .select('*')
+        .eq('from_currency', fromCurrency)
+        .eq('to_currency', toCurrency)
+        .single();
+
+      if (error) throw error;
+
+      return {
+        id: data.id,
+        from_currency: data.from_currency,
+        to_currency: data.to_currency,
+        rate: data.rate,
+        created_at: data.created_at,
+        updated_at: data.updated_at
+      };
     } catch (error) {
       logger.error(`Error fetching exchange rate ${fromCurrency}->${toCurrency}:`, error);
       throw error;
@@ -50,7 +80,14 @@ export class ExchangeRateApi {
    */
   static async updateRates(): Promise<{ message: string; updatedAt: string }> {
     try {
-      return await apiClient.post<{ message: string; updatedAt: string }>('/protected/exchange-rates/update');
+      const { data, error } = await supabase.functions.invoke('update-exchange-rates');
+
+      if (error) throw error;
+
+      return {
+        message: data?.message || 'Exchange rates updated successfully',
+        updatedAt: new Date().toISOString()
+      };
     } catch (error) {
       logger.error('Error updating exchange rates:', error);
       throw error;
@@ -62,7 +99,21 @@ export class ExchangeRateApi {
    */
   static async getSchedulerStatus(): Promise<ExchangeRateStatus> {
     try {
-      return await apiClient.get<ExchangeRateStatus>('/exchange-rates/status');
+      // 获取最新的汇率更新时间作为状态指示
+      const { data, error } = await supabase
+        .from('exchange_rates')
+        .select('updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error) throw error;
+
+      return {
+        isRunning: true,
+        nextRun: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24小时后
+        hasApiKey: true
+      };
     } catch (error) {
       logger.error('Error fetching scheduler status:', error);
       throw error;

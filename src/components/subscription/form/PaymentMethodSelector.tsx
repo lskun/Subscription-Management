@@ -19,9 +19,9 @@ import {
 import { FormField } from "./FormField"
 
 interface PaymentMethodSelectorProps {
-  value: number
-  onChange: (value: number) => void
-  paymentMethods: Array<{ id: number; value: string; label: string }>
+  value: string
+  onChange: (value: string) => void
+  paymentMethods: Array<{ id: string; value: string; label: string }>
   error?: string
 }
 

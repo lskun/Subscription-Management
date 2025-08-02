@@ -2,7 +2,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartConfig } from "@/components/ui/chart"
 import { formatCurrencyAmount } from "@/utils/currency"
-import { MonthlyExpense } from "@/lib/expense-analytics-api"
+import { MonthlyExpense } from "@/services/supabaseAnalyticsService"
 
 interface ExpenseBarChartProps {
   data: MonthlyExpense[]

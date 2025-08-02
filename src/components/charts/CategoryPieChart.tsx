@@ -2,7 +2,7 @@ import { PieChart, Pie, Cell, Tooltip } from 'recharts'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartConfig } from "@/components/ui/chart"
 import { formatCurrencyAmount } from "@/utils/currency"
-import { CategoryExpense } from "@/lib/expense-analytics-api"
+import { CategoryExpense } from "@/services/supabaseAnalyticsService"
 import { useSubscriptionStore } from "@/store/subscriptionStore"
 
 interface CategoryPieChartProps {
@@ -28,6 +28,10 @@ const COLORS = [
 
 export function CategoryPieChart({ data, currency, className }: CategoryPieChartProps) {
   const { categories } = useSubscriptionStore()
+  
+  // Debug: Log the data being passed to the component
+  console.log('CategoryPieChart - data:', data)
+  console.log('CategoryPieChart - data.length:', data.length)
   
   // Get category label
   const getCategoryLabel = (categoryValue: string) => {

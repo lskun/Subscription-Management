@@ -1,7 +1,19 @@
 import { HandCoins } from "lucide-react";
-import { Subscription } from "@/store/subscriptionStore";
+// Simplified subscription interface for dashboard display
+interface DashboardSubscription {
+  id: string
+  name: string
+  plan?: string
+  amount: number
+  currency: string
+  originalAmount?: number // 原始金额
+  originalCurrency?: string // 原始货币
+  lastBillingDate: string
+  billingCycle: string
+  status: 'active'
+}
 import { formatDate } from "@/lib/subscription-utils";
-import { formatWithUserCurrency } from "@/utils/currency";
+import { formatWithUserCurrency, formatCurrencyAmount } from "@/utils/currency";
 import {
   Card,
   CardContent,
@@ -13,7 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 
 interface RecentlyPaidProps {
-  subscriptions: Subscription[];
+  subscriptions: DashboardSubscription[];
   className?: string;
 }
 
@@ -42,13 +54,16 @@ export function RecentlyPaid({ subscriptions, className }: RecentlyPaidProps) {
                 <div className="flex flex-col">
                   <div className="font-medium">{subscription.name}</div>
                   <div className="text-sm text-muted-foreground">
-                    {subscription.plan}
+                    {subscription.plan || subscription.billingCycle}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="text-right">
                     <div className="font-medium">
-                      {formatWithUserCurrency(subscription.amount, subscription.currency)}
+                      {subscription.originalAmount && subscription.originalCurrency ? 
+                        `${formatCurrencyAmount(subscription.amount, subscription.currency)}(${formatCurrencyAmount(subscription.originalAmount, subscription.originalCurrency)})` :
+                        formatWithUserCurrency(subscription.amount, subscription.currency)
+                      }
                     </div>
                     <div className="text-xs text-muted-foreground flex items-center gap-1">
                       Paid on: {formatDate(subscription.lastBillingDate!)}
@@ -62,4 +77,4 @@ export function RecentlyPaid({ subscriptions, className }: RecentlyPaidProps) {
       </CardContent>
     </Card>
   );
-} 
+}

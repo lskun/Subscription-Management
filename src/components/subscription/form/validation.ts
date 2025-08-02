@@ -5,8 +5,8 @@ export const validateForm = (form: SubscriptionFormData): FormErrors => {
 
   if (!form.name) errors.name = "Name is required"
   if (!form.plan) errors.plan = "Subscription plan is required"
-  if (!form.categoryId || form.categoryId === 0) errors.categoryId = "Category is required"
-  if (!form.paymentMethodId || form.paymentMethodId === 0) errors.paymentMethodId = "Payment method is required"
+  if (!form.categoryId || form.categoryId === "") errors.categoryId = "Category is required"
+  if (!form.paymentMethodId || form.paymentMethodId === "") errors.paymentMethodId = "Payment method is required"
   if (form.amount <= 0) errors.amount = "Amount must be greater than 0"
 
   return errors

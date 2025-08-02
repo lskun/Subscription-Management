@@ -12,9 +12,19 @@ export const currencySymbols: Record<string, string> = Object.fromEntries(
  */
 export function formatCurrencyAmount(
   amount: number, 
-  currency: string,
+  currency: string = 'CNY',
   showSymbol: boolean = true
 ): string {
+  // Ensure amount is a valid number
+  if (typeof amount !== 'number' || isNaN(amount)) {
+    amount = 0
+  }
+  
+  // Ensure currency is a valid string
+  if (typeof currency !== 'string' || !currency) {
+    currency = 'CNY'
+  }
+  
   // Get the currency symbol, or use currency code if not found
   const symbol = showSymbol ? (currencySymbols[currency] || currency) : ''
   
@@ -32,13 +42,36 @@ export function formatCurrencyAmount(
 
 /**
  * Convert an amount from one currency to another
+ * @param amount 金额
+ * @param fromCurrency 源货币
+ * @param toCurrency 目标货币
+ * @param customRates 可选的自定义汇率，如果不提供则从store获取
  */
 export function convertCurrency(
   amount: number,
   fromCurrency: string,
   toCurrency: string,
+  customRates?: Record<string, number>
 ): number {
-  const { exchangeRates } = useSettingsStore.getState()
+  // Ensure amount is a valid number
+  if (typeof amount !== 'number' || isNaN(amount)) {
+    console.warn(`Invalid amount for currency conversion: ${amount}`)
+    return 0
+  }
+  
+  // Ensure currencies are valid strings
+  if (typeof fromCurrency !== 'string' || !fromCurrency) {
+    console.warn(`Invalid fromCurrency: ${fromCurrency}`)
+    fromCurrency = 'CNY'
+  }
+  
+  if (typeof toCurrency !== 'string' || !toCurrency) {
+    console.warn(`Invalid toCurrency: ${toCurrency}`)
+    toCurrency = 'CNY'
+  }
+  
+  // 获取汇率数据，优先使用自定义汇率，否则从store获取
+  const exchangeRates = customRates || useSettingsStore.getState().exchangeRates
   
   // If currencies are the same, no conversion needed
   if (fromCurrency === toCurrency) {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useCallback, useMemo } from "react"
 import {
   Calendar,
   Clock,
@@ -6,6 +6,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/hooks/use-toast"
+import { useAuth } from "@/contexts/AuthContext"
 
 import {
   useSubscriptionStore,
@@ -13,7 +14,7 @@ import {
 } from "@/store/subscriptionStore"
 import { useSettingsStore } from "@/store/settingsStore"
 import { formatCurrencyAmount } from "@/utils/currency"
-import { getCurrentMonthSpending, getCurrentYearSpending } from "@/lib/expense-analytics-api"
+import { useDashboardData } from "@/hooks/useDashboardData"
 
 import { SubscriptionForm } from "@/components/subscription/SubscriptionForm"
 import { StatCard } from "@/components/dashboard/StatCard"
@@ -24,67 +25,37 @@ import { ImportModal } from "@/components/imports/ImportModal"
 
 function HomePage() {
   const { toast } = useToast()
+  const { user, loading: authLoading } = useAuth()
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
-  // Get the default view from settings
-  const { currency: userCurrency, fetchSettings } = useSettingsStore()
+  const [isRefreshing, setIsRefreshing] = useState(false)
   
+  // Get the default view from settings
+  const { currency: userCurrency } = useSettingsStore()
+
   const {
-    subscriptions,
     bulkAddSubscriptions,
     updateSubscription,
     fetchSubscriptions,
-    getUpcomingRenewals,
-    getRecentlyPaid,
-    getSpendingByCategory,
-    initializeData,
-    initializeWithRenewals,
-    isLoading
+    initializeWithRenewals
   } = useSubscriptionStore()
 
-  // State for API-based spending data
-  const [monthlySpending, setMonthlySpending] = useState<number>(0)
-  const [yearlySpending, setYearlySpending] = useState<number>(0)
-  const [isLoadingSpending, setIsLoadingSpending] = useState(false)
-  const [isRefreshing, setIsRefreshing] = useState(false)
+  // Use the new dashboard data hook
+  const {
+    dashboardData,
+    isLoading: isLoadingDashboard,
+    error: dashboardError,
+    hasInitialized,
+    refreshData: refreshDashboardData
+  } = useDashboardData()
 
-  // Initialize subscriptions without auto-renewals
-  useEffect(() => {
-    const initialize = async () => {
-      await fetchSettings()
-      await initializeData()
-    }
+  // Show dashboard error if any
+  if (dashboardError) {
+    console.error('Dashboard错误:', dashboardError)
+  }
 
-    initialize()
-  }, []) // Remove dependencies to prevent infinite re-renders
-
-  // Load spending data from API
-  useEffect(() => {
-    const loadSpendingData = async () => {
-      setIsLoadingSpending(true)
-
-      try {
-        const [currentMonth, currentYear] = await Promise.all([
-          getCurrentMonthSpending(userCurrency),
-          getCurrentYearSpending(userCurrency)
-        ])
-
-        setMonthlySpending(currentMonth)
-        setYearlySpending(currentYear)
-      } catch (error) {
-        console.error('Failed to load spending data:', error)
-      } finally {
-        setIsLoadingSpending(false)
-      }
-    }
-
-    if (userCurrency) {
-      loadSpendingData()
-    }
-  }, [userCurrency])
-
-  // Handler for updating subscription
-  const handleUpdateSubscription = async (id: number, data: Omit<Subscription, "id" | "lastBillingDate">) => {
+  // Handler for updating subscription (memoized)
+  const handleUpdateSubscription = useCallback(async (id: string, data: Omit<Subscription, "id" | "lastBillingDate">) => {
     const { error } = await updateSubscription(id, data)
 
     if (error) {
@@ -101,44 +72,42 @@ function HomePage() {
       title: "Subscription updated",
       description: `${data.name} has been updated successfully.`
     })
-  }
+  }, [updateSubscription, toast])
 
-  // Handler for manual refresh with renewals
-  const handleRefreshWithRenewals = async () => {
+  // Handler for manual refresh with renewals (memoized)
+  const handleRefreshWithRenewals = useCallback(async () => {
     setIsRefreshing(true)
+    console.log('🔄 开始手动刷新数据...')
+
     try {
+      // Refresh subscription data with renewals
       await initializeWithRenewals()
 
-      // Also refresh spending data
-      if (userCurrency) {
-        const [currentMonth, currentYear] = await Promise.all([
-          getCurrentMonthSpending(userCurrency),
-          getCurrentYearSpending(userCurrency)
-        ])
-        setMonthlySpending(currentMonth)
-        setYearlySpending(currentYear)
-      }
+      // Refresh dashboard data
+      await refreshDashboardData()
+
+      console.log('✅ 手动刷新完成')
 
       toast({
-        title: "Data refreshed",
-        description: "Subscription data and renewals have been processed."
+        title: "数据已刷新",
+        description: "订阅数据和续费信息已更新完成"
       })
     } catch (error) {
-      console.error('Error refreshing data:', error)
+      console.error('❌ 刷新数据失败:', error)
       toast({
-        title: "Refresh failed",
-        description: "Failed to refresh data. Please try again.",
+        title: "刷新失败",
+        description: "数据刷新失败，请重试",
         variant: "destructive"
       })
     } finally {
       setIsRefreshing(false)
     }
-  }
+  }, [initializeWithRenewals, refreshDashboardData, toast])
 
 
 
-  // Handler for importing subscriptions
-  const handleImportSubscriptions = async (newSubscriptions: Omit<Subscription, "id">[]) => {
+  // Handler for importing subscriptions (memoized)
+  const handleImportSubscriptions = useCallback(async (newSubscriptions: Omit<Subscription, "id">[]) => {
     const { error } = await bulkAddSubscriptions(newSubscriptions);
 
     if (error) {
@@ -156,21 +125,57 @@ function HomePage() {
 
     // Final fetch to ensure UI is up-to-date
     fetchSubscriptions();
-  };
+  }, [bulkAddSubscriptions, fetchSubscriptions, toast]);
 
 
 
-  // Get data for dashboard (non-API data)
-  const upcomingRenewals = getUpcomingRenewals(7)
-  const recentlyPaidSubscriptions = getRecentlyPaid(7)
-  const spendingByCategory = getSpendingByCategory()
+  // All dashboard data now comes from Edge Function
+  const {
+    monthlySpending,
+    yearlySpending,
+    activeSubscriptions: activeSubscriptionsCount,
+    upcomingRenewals,
+    recentlyPaid: recentlyPaidSubscriptions,
+    categoryBreakdown
+  } = dashboardData
 
-  if (isLoading || isLoadingSpending) {
+  // Convert categoryBreakdown to the format expected by CategoryBreakdown component
+  const spendingByCategory = useMemo(() => {
+    const result: Record<string, number> = {}
+    categoryBreakdown.forEach(category => {
+      result[category.category] = category.amount
+    })
+    return result
+  }, [categoryBreakdown])
+
+  // Show loading while authenticating or loading data
+  // 优化加载状态：只在真正需要时显示加载界面
+  const shouldShowLoading = authLoading || (isLoadingDashboard && !hasInitialized)
+
+  if (shouldShowLoading) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-16rem)]">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-lg font-medium">Loading subscriptions...</p>
+          <p className="text-lg font-medium">
+            {authLoading ? '正在验证身份...' : '正在加载订阅数据...'}
+          </p>
+          {process.env.NODE_ENV === 'development' && (
+            <p className="text-sm text-muted-foreground mt-2">
+              开发模式：React StrictMode可能会导致初始化执行两次
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Redirect to login if not authenticated
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-16rem)]">
+        <div className="text-center">
+          <p className="text-lg font-medium">请登录以查看您的仪表板</p>
         </div>
       </div>
     )
@@ -199,42 +204,42 @@ function HomePage() {
 
       {/* Dashboard Content */}
       <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-3">
-            <StatCard
-              title="Monthly Spending"
-              value={formatCurrencyAmount(monthlySpending, userCurrency)}
-              description="Current month expenses"
-              icon={Calendar}
-              iconColor="text-blue-500"
-            />
-            <StatCard
-              title="Yearly Spending"
-              value={formatCurrencyAmount(yearlySpending, userCurrency)}
-              description="Current year total expenses"
-              icon={Calendar}
-              iconColor="text-purple-500"
-            />
-            <StatCard
-              title="Active Subscriptions"
-              value={subscriptions.filter(sub => sub.status === "active").length}
-              description="Total services"
-              icon={Clock}
-              iconColor="text-green-500"
-            />
-          </div>
-          
-          <div className="grid gap-4 grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
-            <RecentlyPaid
-              subscriptions={recentlyPaidSubscriptions}
-            />
-
-            <UpcomingRenewals
-              subscriptions={upcomingRenewals}
-            />
-
-            <CategoryBreakdown data={spendingByCategory} />
-          </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          <StatCard
+            title="Monthly Spending"
+            value={formatCurrencyAmount(monthlySpending, userCurrency || 'CNY')}
+            description="Current month expenses"
+            icon={Calendar}
+            iconColor="text-blue-500"
+          />
+          <StatCard
+            title="Yearly Spending"
+            value={formatCurrencyAmount(yearlySpending, userCurrency || 'CNY')}
+            description="Current year total expenses"
+            icon={Calendar}
+            iconColor="text-purple-500"
+          />
+          <StatCard
+            title="Active Subscriptions"
+            value={activeSubscriptionsCount.toString()}
+            description="Total services"
+            icon={Clock}
+            iconColor="text-green-500"
+          />
         </div>
+
+        <div className="grid gap-4 grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
+          <RecentlyPaid
+            subscriptions={recentlyPaidSubscriptions}
+          />
+
+          <UpcomingRenewals
+            subscriptions={upcomingRenewals}
+          />
+
+          <CategoryBreakdown data={spendingByCategory} />
+        </div>
+      </div>
 
 
 
@@ -247,7 +252,7 @@ function HomePage() {
           onSubmit={(data) => handleUpdateSubscription(editingSubscription.id, data)}
         />
       )}
-      
+
       <ImportModal
         open={showImportModal}
         onOpenChange={setShowImportModal}

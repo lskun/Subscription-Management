@@ -126,8 +126,8 @@ export const useRecentlyPaid = (days: number = 7) => {
 export const selectActiveSubscriptions = (state: any) =>
   state.subscriptions.filter((sub: any) => sub.status === 'active')
 
-export const selectSubscriptionById = (id: number) => (state: any) =>
+export const selectSubscriptionById = (id: string) => (state: any) =>
   state.subscriptions.find((sub: any) => sub.id === id)
 
-export const selectSubscriptionsByCategory = (categoryId: number) => (state: any) =>
+export const selectSubscriptionsByCategory = (categoryId: string) => (state: any) =>
   state.subscriptions.filter((sub: any) => sub.categoryId === categoryId)

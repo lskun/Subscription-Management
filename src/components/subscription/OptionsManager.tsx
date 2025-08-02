@@ -129,22 +129,32 @@ interface OptionItemProps {
   onEdit: () => void
   onDelete: () => void
   canDelete?: boolean
+  isDefault?: boolean
 }
 
-function OptionItem({ value, label, onEdit, onDelete, canDelete = true }: OptionItemProps) {
+function OptionItem({ value, label, onEdit, onDelete, canDelete = true, isDefault = false }: OptionItemProps) {
   return (
     <div className="group relative p-3 border rounded-lg hover:shadow-md transition-all duration-200">
       <div className="space-y-1">
-        <p className="font-medium">{label}</p>
+        <div className="flex items-center gap-2">
+          <p className="font-medium">{label}</p>
+          {isDefault && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+              系统默认
+            </span>
+          )}
+        </div>
         <p className="text-xs text-muted-foreground">
           {value}
         </p>
       </div>
       <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <Button variant="ghost" size="sm" onClick={onEdit} className="h-6 w-6 p-0">
-          <Edit className="h-3 w-3" />
-        </Button>
-        {canDelete && (
+        {!isDefault && (
+          <Button variant="ghost" size="sm" onClick={onEdit} className="h-6 w-6 p-0">
+            <Edit className="h-3 w-3" />
+          </Button>
+        )}
+        {canDelete && !isDefault && (
           <Button variant="ghost" size="sm" onClick={onDelete} className="h-6 w-6 p-0">
             <Trash2 className="h-3 w-3" />
           </Button>
@@ -309,8 +319,8 @@ export function OptionsManager() {
     <div className="space-y-6">
       <Tabs defaultValue="categories" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="categories">Categories</TabsTrigger>
-          <TabsTrigger value="payment-methods">Payment Methods</TabsTrigger>
+          <TabsTrigger value="categories" data-testid="categories-tab">Categories</TabsTrigger>
+          <TabsTrigger value="payment-methods" data-testid="payment-methods-tab">Payment Methods</TabsTrigger>
         </TabsList>
 
         <TabsContent value="categories">
@@ -336,8 +346,10 @@ export function OptionsManager() {
                     key={category.value}
                     value={category.value}
                     label={category.label}
+                    isDefault={category.is_default}
                     onEdit={() => handleEdit('category', category.value, category.label)}
                     onDelete={() => handleDeleteClick('category', category.value, category.label)}
+                    canDelete={!category.is_default}
                   />
                 ))}
               </div>
@@ -368,8 +380,10 @@ export function OptionsManager() {
                     key={method.value}
                     value={method.value}
                     label={method.label}
+                    isDefault={method.is_default}
                     onEdit={() => handleEdit('payment', method.value, method.label)}
                     onDelete={() => handleDeleteClick('payment', method.value, method.label)}
+                    canDelete={!method.is_default}
                   />
                 ))}
               </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useCallback } from "react"
 import { 
   Calendar, 
   Plus, 
@@ -39,12 +39,15 @@ import {
   BillingCycle
 } from "@/store/subscriptionStore"
 import { useSettingsStore } from "@/store/settingsStore"
+import { useSubscriptionsData } from "@/hooks/useSubscriptionsData"
+import { SubscriptionData } from "@/services/subscriptionsEdgeFunctionService"
 import { exportSubscriptionsToCSV } from "@/lib/subscription-utils"
 
 import { SubscriptionCard } from "@/components/subscription/SubscriptionCard"
 import { SubscriptionForm } from "@/components/subscription/SubscriptionForm"
 import { SubscriptionDetailDialog } from "@/components/subscription/SubscriptionDetailDialog"
 import { ImportModal } from "@/components/imports/ImportModal"
+import { ExportModal } from "@/components/exports/ExportModal"
 
 export function SubscriptionsPage() {
   const { toast } = useToast()
@@ -57,38 +60,47 @@ export function SubscriptionsPage() {
   const [categoryFilterOpen, setCategoryFilterOpen] = useState(false)
   const [billingCycleFilterOpen, setBillingCycleFilterOpen] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
   const [detailSubscription, setDetailSubscription] = useState<Subscription | null>(null)
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc")
 
-  const { fetchSettings } = useSettingsStore()
+  const { currency: userCurrency } = useSettingsStore()
   
+  // Use the new subscriptions data hook
   const {
     subscriptions,
     categories,
+    paymentMethods,
+    summary,
+    isLoading,
+    error: subscriptionsError,
+    currentFilters,
+    currentSorting,
+    refreshData,
+    updateFilters,
+    updateSorting,
+    searchSubscriptions,
+    filterByStatus,
+    filterByCategories,
+    filterByBillingCycles
+  } = useSubscriptionsData()
+
+  // Still need subscription store for CRUD operations
+  const {
     addSubscription,
     bulkAddSubscriptions,
     updateSubscription,
     deleteSubscription,
     fetchSubscriptions,
-    getUniqueCategories,
-    initializeData,
-    initializeWithRenewals,
-    manualRenewSubscription,
-    isLoading
+    manualRenewSubscription
   } = useSubscriptionStore()
-
-  // Initialize subscriptions without auto-renewals
-  useEffect(() => {
-    const initialize = async () => {
-      await fetchSettings()
-      await initializeData()
-    }
-
-    initialize()
-  }, []) // Remove dependencies to prevent infinite re-renders
   
-  // Get categories actually in use
-  const usedCategories = getUniqueCategories()
+  // Get categories from Edge Function data
+  const usedCategories = categories.map(cat => ({
+    id: cat.id,
+    value: cat.value,
+    label: cat.label
+  }))
   
   // Get unique billing cycles in use
   const getUniqueBillingCycles = () => {
@@ -101,43 +113,11 @@ export function SubscriptionsPage() {
   
   const usedBillingCycles = getUniqueBillingCycles()
 
-  // Filter subscriptions based on search term, current view, selected categories and billing cycles
-  const filteredSubscriptions = subscriptions.filter(sub => {
-    const matchesSearch = sub.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        sub.plan.toLowerCase().includes(searchTerm.toLowerCase())
-    
-    const matchesStatus = 
-      currentView === "all" || 
-      (currentView === "active" && sub.status !== "cancelled") ||
-      (currentView === "cancelled" && sub.status === "cancelled")
-    
-    const matchesCategory =
-      selectedCategories.length === 0 ||
-      selectedCategories.some(categoryValue => {
-        const category = categories.find(cat => cat.value === categoryValue)
-        return category && sub.categoryId === category.id
-      })
-      
-    const matchesBillingCycle =
-      selectedBillingCycles.length === 0 ||
-      selectedBillingCycles.includes(sub.billingCycle)
-    
-    return matchesSearch && matchesStatus && matchesCategory && matchesBillingCycle
-  })
-
-  const sortedSubscriptions = [...filteredSubscriptions].sort((a, b) => {
-    const dateA = new Date(a.nextBillingDate).getTime()
-    const dateB = new Date(b.nextBillingDate).getTime()
-
-    if (sortOrder === "asc") {
-      return dateA - dateB
-    } else {
-      return dateB - dateA
-    }
-  })
+  // Subscriptions are already filtered and sorted by Edge Function
+  const sortedSubscriptions = subscriptions
 
   // Handler for adding new subscription
-  const handleAddSubscription = async (subscription: Omit<Subscription, "id" | "lastBillingDate">) => {
+  const handleAddSubscription = useCallback(async (subscription: Omit<Subscription, "id" | "lastBillingDate">) => {
     const { error } = await addSubscription(subscription)
     
     if (error) {
@@ -149,14 +129,17 @@ export function SubscriptionsPage() {
       return
     }
     
+    // Refresh data after adding
+    await refreshData()
+    
     toast({
       title: "Subscription added",
       description: `${subscription.name} has been added successfully.`
     })
-  }
+  }, [addSubscription, refreshData, toast])
 
   // Handler for updating subscription
-  const handleUpdateSubscription = async (id: number, data: Omit<Subscription, "id" | "lastBillingDate">) => {
+  const handleUpdateSubscription = useCallback(async (id: string, data: Omit<Subscription, "id" | "lastBillingDate">) => {
     const { error } = await updateSubscription(id, data)
     
     if (error) {
@@ -168,18 +151,21 @@ export function SubscriptionsPage() {
       return
     }
     
+    // Refresh data after updating
+    await refreshData()
+    
     setEditingSubscription(null)
     toast({
       title: "Subscription updated",
       description: `${data.name} has been updated successfully.`
     })
-  }
+  }, [updateSubscription, refreshData, toast])
 
   // State for delete confirmation
-  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   
   // Handler for deleting subscription
-  const handleDeleteSubscription = async () => {
+  const handleDeleteSubscription = useCallback(async () => {
     if (!deleteTarget) return
     
     const { error } = await deleteSubscription(deleteTarget.id)
@@ -193,6 +179,9 @@ export function SubscriptionsPage() {
       return
     }
     
+    // Refresh data after deleting
+    await refreshData()
+    
     toast({
       title: "Subscription deleted",
       description: `${deleteTarget.name} has been deleted.`,
@@ -200,7 +189,7 @@ export function SubscriptionsPage() {
     })
     
     setDeleteTarget(null)
-  }
+  }, [deleteTarget, deleteSubscription, refreshData, toast])
   
   // Confirmation dialog hook
   const deleteConfirmation = useConfirmation({
@@ -211,7 +200,7 @@ export function SubscriptionsPage() {
   })
   
   // Handler to open delete confirmation
-  const handleDeleteClick = (id: number) => {
+  const handleDeleteClick = (id: string) => {
     const subscription = subscriptions.find(sub => sub.id === id)
     if (!subscription) return
     
@@ -220,7 +209,7 @@ export function SubscriptionsPage() {
   }
 
   // Handler for changing subscription status
-  const handleStatusChange = async (id: number, status: SubscriptionStatus) => {
+  const handleStatusChange = useCallback(async (id: string, status: SubscriptionStatus) => {
     const subscription = subscriptions.find(sub => sub.id === id)
     if (!subscription) return
 
@@ -235,14 +224,17 @@ export function SubscriptionsPage() {
       return
     }
 
+    // Refresh data after status change
+    await refreshData()
+
     toast({
       title: status === "active" ? "Subscription activated" : "Subscription cancelled",
       description: `${subscription.name} has been ${status === "active" ? "activated" : "cancelled"}.`
     })
-  }
+  }, [subscriptions, updateSubscription, refreshData, toast])
 
   // Handler for manual renewal
-  const handleManualRenew = async (id: number) => {
+  const handleManualRenew = useCallback(async (id: string) => {
     const subscription = subscriptions.find(sub => sub.id === id)
     if (!subscription) return
 
@@ -257,36 +249,37 @@ export function SubscriptionsPage() {
       return
     }
 
+    // Refresh data after renewal
+    await refreshData()
+
     toast({
       title: "Subscription renewed successfully",
       description: `${subscription.name} has been renewed. Next billing date: ${renewalData?.newNextBilling}`
     })
-  }
+  }, [subscriptions, manualRenewSubscription, refreshData, toast])
 
   // Handler for toggling a category in the filter
-  const toggleCategoryFilter = (categoryValue: string) => {
-    setSelectedCategories(prev => {
-      if (prev.includes(categoryValue)) {
-        return prev.filter(c => c !== categoryValue)
-      } else {
-        return [...prev, categoryValue]
-      }
-    })
-  }
+  const toggleCategoryFilter = useCallback((categoryValue: string) => {
+    const newCategories = selectedCategories.includes(categoryValue)
+      ? selectedCategories.filter(c => c !== categoryValue)
+      : [...selectedCategories, categoryValue]
+    
+    setSelectedCategories(newCategories)
+    filterByCategories(newCategories)
+  }, [selectedCategories, filterByCategories])
   
   // Handler for toggling a billing cycle in the filter
-  const toggleBillingCycleFilter = (billingCycle: BillingCycle) => {
-    setSelectedBillingCycles(prev => {
-      if (prev.includes(billingCycle)) {
-        return prev.filter(c => c !== billingCycle)
-      } else {
-        return [...prev, billingCycle]
-      }
-    })
-  }
+  const toggleBillingCycleFilter = useCallback((billingCycle: BillingCycle) => {
+    const newBillingCycles = selectedBillingCycles.includes(billingCycle)
+      ? selectedBillingCycles.filter(c => c !== billingCycle)
+      : [...selectedBillingCycles, billingCycle]
+    
+    setSelectedBillingCycles(newBillingCycles)
+    filterByBillingCycles(newBillingCycles)
+  }, [selectedBillingCycles, filterByBillingCycles])
 
   // Handler for importing subscriptions
-  const handleImportSubscriptions = async (newSubscriptions: Omit<Subscription, "id">[]) => {
+  const handleImportSubscriptions = useCallback(async (newSubscriptions: Omit<Subscription, "id">[]) => {
     const { error } = await bulkAddSubscriptions(newSubscriptions);
 
     if (error) {
@@ -302,29 +295,13 @@ export function SubscriptionsPage() {
       });
     }
 
-    // Final fetch to ensure UI is up-to-date
-    fetchSubscriptions();
-  };
+    // Refresh data after importing
+    await refreshData();
+  }, [bulkAddSubscriptions, refreshData, toast]);
 
   // Handler for exporting subscriptions
   const handleExportSubscriptions = () => {
-    // Generate CSV data
-    const csvData = exportSubscriptionsToCSV(subscriptions)
-    
-    // Create a blob and download link
-    const blob = new Blob([csvData], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `subscriptions-${new Date().toISOString().split('T')[0]}.csv`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    
-    toast({
-      title: "Export successful",
-      description: "Your subscriptions have been exported to CSV."
-    })
+    setShowExportModal(true)
   }
   
   // Get billing cycle badge variant
@@ -410,7 +387,10 @@ export function SubscriptionsPage() {
           <SearchInput
             placeholder="Search subscriptions..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value)
+              searchSubscriptions(e.target.value)
+            }}
             className="w-full"
             icon={<Search className="h-4 w-4 text-muted-foreground" />}
           />
@@ -541,7 +521,11 @@ export function SubscriptionsPage() {
                 <Button
                   variant="outline"
                   size="icon"
-                  onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
+                  onClick={() => {
+                    const newOrder = sortOrder === "asc" ? "desc" : "asc"
+                    setSortOrder(newOrder)
+                    updateSorting({ field: 'nextBillingDate', order: newOrder })
+                  }}
                 >
                   {sortOrder === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
                 </Button>
@@ -556,19 +540,28 @@ export function SubscriptionsPage() {
         <div className="flex items-center gap-2">
           <Button
             variant={currentView === "all" ? "default" : "outline"}
-            onClick={() => setCurrentView("all")}
+            onClick={() => {
+              setCurrentView("all")
+              filterByStatus("all")
+            }}
           >
             All
           </Button>
           <Button
             variant={currentView === "active" ? "default" : "outline"}
-            onClick={() => setCurrentView("active")}
+            onClick={() => {
+              setCurrentView("active")
+              filterByStatus("active")
+            }}
           >
             Active
           </Button>
           <Button
             variant={currentView === "cancelled" ? "default" : "outline"}
-            onClick={() => setCurrentView("cancelled")}
+            onClick={() => {
+              setCurrentView("cancelled")
+              filterByStatus("cancelled")
+            }}
           >
             Cancelled
           </Button>
@@ -702,17 +695,40 @@ export function SubscriptionsPage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {sortedSubscriptions.map((subscription) => (
-            <SubscriptionCard
-              key={subscription.id}
-              subscription={subscription}
-              onEdit={() => setEditingSubscription(subscription)}
-              onDelete={() => handleDeleteClick(subscription.id)}
-              onStatusChange={handleStatusChange}
-              onManualRenew={handleManualRenew}
-              onViewDetails={(subscription) => setDetailSubscription(subscription)}
-            />
-          ))}
+          {sortedSubscriptions.map((subscription) => {
+            // Convert SubscriptionData to Subscription format for SubscriptionCard
+            const subscriptionForCard: Subscription = {
+              id: subscription.id,
+              name: subscription.name,
+              plan: subscription.plan,
+              billingCycle: subscription.billingCycle as BillingCycle,
+              nextBillingDate: subscription.nextBillingDate,
+              lastBillingDate: subscription.lastBillingDate,
+              amount: subscription.convertedAmount, // Use converted amount
+              currency: userCurrency || 'CNY', // Use user's currency
+              paymentMethodId: subscription.paymentMethodId,
+              startDate: subscription.startDate,
+              status: subscription.status as SubscriptionStatus,
+              categoryId: subscription.categoryId,
+              renewalType: subscription.renewalType as 'auto' | 'manual',
+              notes: subscription.notes,
+              website: subscription.website,
+              category: subscription.category,
+              paymentMethod: subscription.paymentMethod
+            }
+            
+            return (
+              <SubscriptionCard
+                key={subscription.id}
+                subscription={subscriptionForCard}
+                onEdit={() => setEditingSubscription(subscriptionForCard)}
+                onDelete={() => handleDeleteClick(subscription.id)}
+                onStatusChange={handleStatusChange}
+                onManualRenew={handleManualRenew}
+                onViewDetails={(subscription) => setDetailSubscription(subscription)}
+              />
+            )
+          })}
         </div>
       )}
 
@@ -755,6 +771,12 @@ export function SubscriptionsPage() {
         onOpenChange={setShowImportModal}
         onImport={handleImportSubscriptions}
       />
+
+      <ExportModal
+        open={showExportModal}
+        onOpenChange={setShowExportModal}
+      />
+
       <ConfirmDialog {...deleteConfirmation.dialogProps} />
     </>
   )

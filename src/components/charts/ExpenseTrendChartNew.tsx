@@ -1,5 +1,5 @@
 import { TrendChart } from './TrendChart'
-import { MonthlyExpense } from "@/lib/expense-analytics-api"
+import { MonthlyExpense } from "@/services/supabaseAnalyticsService"
 import { TrendDataPoint } from '@/types'
 
 interface ExpenseTrendChartProps {

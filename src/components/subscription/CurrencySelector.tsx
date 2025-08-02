@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Check, ChevronsUpDown } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -17,7 +17,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { currencySymbols } from "@/utils/currency"
-import { useSettingsStore } from "@/store/settingsStore"
+import { SUPPORTED_CURRENCIES } from "@/config/currency"
 
 interface CurrencySelectorProps {
   value: string
@@ -31,15 +31,9 @@ export function CurrencySelector({
   className
 }: CurrencySelectorProps) {
   const [open, setOpen] = useState(false)
-  const { exchangeRates, fetchExchangeRates } = useSettingsStore()
 
-  // Fetch exchange rates on component mount
-  useEffect(() => {
-    fetchExchangeRates()
-  }, [fetchExchangeRates])
-
-  // Generate currencies list based on available exchange rates
-  const currencies = Object.keys(exchangeRates).map((code) => ({
+  // Use supported currencies list instead of fetching exchange rates
+  const currencies = SUPPORTED_CURRENCIES.map((code) => ({
     value: code,
     label: code, // Only show currency code
     symbol: currencySymbols[code] || code

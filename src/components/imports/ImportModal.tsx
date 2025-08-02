@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 // Import types and utilities
 import { SubscriptionImportData, ImportStep } from "./types"
 import { parseFileContent } from "./fileParser"
+import { dataImportService, ImportOptions, ImportResult } from "@/services/dataImportService"
 
 // Import step components
 import { FileUploadStep } from "./steps/FileUploadStep"
@@ -36,6 +37,19 @@ export function ImportModal({
   const [subscriptions, setSubscriptions] = useState<SubscriptionImportData[]>([])
   const [errors, setErrors] = useState<string[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [duplicates, setDuplicates] = useState<string[]>([])
+  const [importOptions, setImportOptions] = useState<Partial<ImportOptions>>({
+    duplicateDetection: {
+      checkByName: true,
+      checkByNameAndAmount: false,
+      checkByWebsite: false,
+      skipDuplicates: true
+    },
+    validateData: true,
+    createMissingCategories: true,
+    createMissingPaymentMethods: true
+  })
 
   // Reset state when modal closes
   const handleOpenChange = (open: boolean) => {
@@ -46,6 +60,8 @@ export function ImportModal({
       setSubscriptions([])
       setErrors([])
       setIsProcessing(false)
+      setImportResult(null)
+      setDuplicates([])
     }
     onOpenChange(open)
   }
@@ -62,43 +78,101 @@ export function ImportModal({
     }
   }
 
-  // Handle file validation
-  const validateFile = () => {
+  // Handle file validation using new import service
+  const validateFile = async () => {
     if (!file) return
     
     setIsProcessing(true)
-    setProgress(50)
+    setProgress(25)
+    setErrors([])
+    setSubscriptions([])
     
-    const reader = new FileReader()
-    
-    reader.onload = (e) => {
-      const content = e.target?.result as string
-      parseFileContent(file, content, setSubscriptions, setErrors)
+    try {
+      // 获取文件预览
+      const preview = await dataImportService.getImportPreview(file)
+      setProgress(50)
+      
+      if (preview.errors.length > 0) {
+        setErrors(preview.errors)
+        setProgress(75)
+        setIsProcessing(false)
+        setStep(ImportStep.Review)
+        return
+      }
+      
+      // 解析文件内容
+      let parseResult
+      if (file.name.endsWith('.csv')) {
+        const content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = (e) => resolve(e.target?.result as string)
+          reader.onerror = () => reject(new Error('文件读取失败'))
+          reader.readAsText(file)
+        })
+        parseResult = await dataImportService.parseCSVFile(content)
+      } else if (file.name.endsWith('.json')) {
+        const content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = (e) => resolve(e.target?.result as string)
+          reader.onerror = () => reject(new Error('文件读取失败'))
+          reader.readAsText(file)
+        })
+        parseResult = await dataImportService.parseJSONFile(content)
+      } else {
+        setErrors(['不支持的文件格式，请上传CSV或JSON文件'])
+        setProgress(75)
+        setIsProcessing(false)
+        setStep(ImportStep.Review)
+        return
+      }
+      
+      setSubscriptions(parseResult.subscriptions)
+      setErrors(parseResult.errors)
+      setProgress(100)
+      setIsProcessing(false)
+      setStep(ImportStep.Review)
+      
+    } catch (error: any) {
+      setErrors([`文件验证失败: ${error.message}`])
       setProgress(75)
-      setIsProcessing(false)
-      setStep(ImportStep.Review)
-    }
-    
-    reader.onerror = () => {
-      setErrors(['Error reading file.'])
-      setIsProcessing(false)
-      setStep(ImportStep.Review)
-    }
-    
-    if (file.name.endsWith('.csv') || file.name.endsWith('.json')) {
-      reader.readAsText(file)
-    } else {
-      setErrors(['Unsupported file format. Please upload a CSV or JSON file.'])
       setIsProcessing(false)
       setStep(ImportStep.Review)
     }
   }
 
-  // Handle import completion
-  const completeImport = () => {
-    setProgress(100)
-    onImport(subscriptions)
-    setStep(ImportStep.Complete)
+  // Handle import completion using new import service
+  const completeImport = async () => {
+    if (!file) return
+    
+    setIsProcessing(true)
+    setProgress(0)
+    
+    try {
+      const result = await dataImportService.importFromFile(file, {
+        ...importOptions,
+        onProgress: (progress, message) => {
+          setProgress(progress)
+        }
+      })
+      
+      setImportResult(result)
+      setDuplicates(result.duplicates)
+      
+      if (result.success) {
+        // 调用原有的导入回调（用于刷新UI）
+        onImport(subscriptions)
+        setStep(ImportStep.Complete)
+      } else {
+        setErrors(result.errors)
+        setStep(ImportStep.Review)
+      }
+      
+    } catch (error: any) {
+      setErrors([`导入失败: ${error.message}`])
+      setStep(ImportStep.Review)
+    } finally {
+      setIsProcessing(false)
+    }
   }
 
   // Render content based on current step
@@ -111,10 +185,10 @@ export function ImportModal({
         return <FileValidationStep file={file} progress={progress} />
       
       case ImportStep.Review:
-        return <ReviewStep subscriptions={subscriptions} errors={errors} />
+        return <ReviewStep subscriptions={subscriptions} errors={errors} duplicates={duplicates} />
       
       case ImportStep.Complete:
-        return <CompleteStep subscriptionCount={subscriptions.length} />
+        return <CompleteStep subscriptionCount={subscriptions.length} importResult={importResult} />
     }
   }
 
@@ -125,13 +199,13 @@ export function ImportModal({
         return (
           <>
             <Button variant="outline" onClick={() => handleOpenChange(false)}>
-              Cancel
+              取消
             </Button>
             <Button 
               disabled={!file}
               onClick={() => file && setStep(ImportStep.Validate)}
             >
-              Continue
+              继续
             </Button>
           </>
         )
@@ -140,13 +214,13 @@ export function ImportModal({
         return (
           <>
             <Button variant="outline" onClick={() => handleOpenChange(false)}>
-              Cancel
+              取消
             </Button>
             <Button 
               disabled={isProcessing}
               onClick={validateFile}
             >
-              {isProcessing ? "Validating..." : "Validate File"}
+              {isProcessing ? "验证中..." : "验证文件"}
             </Button>
           </>
         )
@@ -155,13 +229,13 @@ export function ImportModal({
         return (
           <>
             <Button variant="outline" onClick={() => handleOpenChange(false)}>
-              Cancel
+              取消
             </Button>
             <Button 
-              disabled={subscriptions.length === 0 || errors.length > 0}
+              disabled={subscriptions.length === 0 || errors.length > 0 || isProcessing}
               onClick={completeImport}
             >
-              Import {subscriptions.length} Subscriptions
+              {isProcessing ? "导入中..." : `导入 ${subscriptions.length} 个订阅`}
             </Button>
           </>
         )
@@ -169,7 +243,7 @@ export function ImportModal({
       case ImportStep.Complete:
         return (
           <Button onClick={() => handleOpenChange(false)}>
-            Close
+            关闭
           </Button>
         )
     }
@@ -179,9 +253,9 @@ export function ImportModal({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Import Subscriptions</DialogTitle>
+          <DialogTitle>导入订阅数据</DialogTitle>
           <DialogDescription>
-            Upload a CSV or JSON file to import multiple subscriptions at once.
+            上传CSV或JSON文件来批量导入订阅数据。支持重复检测和数据验证。
           </DialogDescription>
         </DialogHeader>
         
@@ -195,16 +269,16 @@ export function ImportModal({
           </div>
           <div className="flex justify-between mt-2 text-xs text-muted-foreground">
             <div className={step >= ImportStep.Upload ? "text-primary font-medium" : ""}>
-              Select file
+              选择文件
             </div>
             <div className={step >= ImportStep.Validate ? "text-primary font-medium" : ""}>
-              Validate
+              验证
             </div>
             <div className={step >= ImportStep.Review ? "text-primary font-medium" : ""}>
-              Review
+              预览
             </div>
             <div className={step >= ImportStep.Complete ? "text-primary font-medium" : ""}>
-              Complete
+              完成
             </div>
           </div>
         </div>

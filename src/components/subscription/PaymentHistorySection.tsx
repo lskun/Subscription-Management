@@ -1,31 +1,47 @@
 import { useState, useEffect } from "react"
 import { useToast } from "@/hooks/use-toast"
-import { useSettingsStore } from "@/store/settingsStore"
-import { PaymentRecord, transformPaymentsFromApi } from "@/utils/dataTransform"
+import { PaymentHistoryRecord, supabasePaymentHistoryService } from "@/services/supabasePaymentHistoryService"
 import { PaymentHistorySheet } from "./PaymentHistorySheet"
-import { apiClient } from '@/utils/api-client'
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { format } from "date-fns"
 
 // Import sub-components
 import { PaymentHistoryHeader } from "./payment/PaymentHistoryHeader"
 import { PaymentListItem } from "./payment/PaymentListItem"
 import { PaymentListState } from "./payment/PaymentListState"
+import { PaymentHistoryStats } from "./payment/PaymentHistoryStats"
+import { PaymentHistoryFilters, PaymentHistoryFilters as FilterType } from "./payment/PaymentHistoryFilters"
+import { PaymentHistoryReport } from "./payment/PaymentHistoryReport"
+import { PaymentBulkActions } from "./payment/PaymentBulkActions"
 import { usePaymentOperations } from "./payment/usePaymentOperations"
 
 interface PaymentHistorySectionProps {
-  subscriptionId: number
+  subscriptionId: string
   subscriptionName: string
 }
 
 export function PaymentHistorySection({ subscriptionId, subscriptionName }: PaymentHistorySectionProps) {
-  const [payments, setPayments] = useState<PaymentRecord[]>([])
+  const [payments, setPayments] = useState<PaymentHistoryRecord[]>([])
+  const [allPayments, setAllPayments] = useState<PaymentHistoryRecord[]>([]) // 存储所有支付记录用于筛选
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [searchTerm, setSearchTerm] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
-  const [editingPayment, setEditingPayment] = useState<PaymentRecord | null>(null)
+  const [editingPayment, setEditingPayment] = useState<PaymentHistoryRecord | null>(null)
+  const [activeTab, setActiveTab] = useState('list')
+  const [selectedPayments, setSelectedPayments] = useState<string[]>([])
+  const [showBulkActions, setShowBulkActions] = useState(false)
   const { toast } = useToast()
-  const { apiKey } = useSettingsStore()
+
+  // 筛选状态
+  const [filters, setFilters] = useState<FilterType>({
+    searchTerm: '',
+    status: 'all',
+    startDate: null,
+    endDate: null,
+    currency: 'all'
+  })
 
 
   // Fetch payment history for this subscription
@@ -34,14 +50,14 @@ export function PaymentHistorySection({ subscriptionId, subscriptionName }: Paym
     setError(null)
 
     try {
-      const response = await apiClient.get<any>(`/payment-history?subscription_id=${subscriptionId}`)
-      const transformedPayments = transformPaymentsFromApi(response.payments || response.data || response || [])
-      setPayments(transformedPayments)
+      const payments = await supabasePaymentHistoryService.getPaymentHistoryBySubscription(subscriptionId)
+      setAllPayments(payments)
+      setPayments(payments) // 初始时显示所有支付记录
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load payment history'
+      const errorMessage = err instanceof Error ? err.message : '加载支付历史失败'
       setError(errorMessage)
       toast({
-        title: "Error",
+        title: "错误",
         description: errorMessage,
         variant: "destructive",
       })
@@ -61,7 +77,7 @@ export function PaymentHistorySection({ subscriptionId, subscriptionName }: Paym
     handleEditPayment: editPayment,
     handleDeleteClick,
     deleteConfirmation
-  } = usePaymentOperations(apiKey, fetchPaymentHistory)
+  } = usePaymentOperations(fetchPaymentHistory)
 
   // Handle adding new payment
   const handleAddPayment = async (paymentData: any) => {
@@ -76,42 +92,160 @@ export function PaymentHistorySection({ subscriptionId, subscriptionName }: Paym
     setEditingPayment(null)
   }
 
-  // Filter payments based on search term
-  const filteredPayments = payments.filter(payment =>
-    payment.paymentDate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    payment.status.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    payment.amountPaid.toString().includes(searchTerm)
-  )
+  // 应用筛选条件
+  const applyFilters = () => {
+    let filtered = [...allPayments]
+
+    // 搜索筛选
+    if (filters.searchTerm) {
+      const searchLower = filters.searchTerm.toLowerCase()
+      filtered = filtered.filter(payment =>
+        payment.paymentDate.toLowerCase().includes(searchLower) ||
+        payment.status.toLowerCase().includes(searchLower) ||
+        payment.amountPaid.toString().includes(searchLower) ||
+        payment.notes?.toLowerCase().includes(searchLower) ||
+        payment.subscription?.name.toLowerCase().includes(searchLower)
+      )
+    }
+
+    // 状态筛选
+    if (filters.status !== 'all') {
+      filtered = filtered.filter(payment => payment.status === filters.status)
+    }
+
+    // 货币筛选
+    if (filters.currency !== 'all') {
+      filtered = filtered.filter(payment => payment.currency === filters.currency)
+    }
+
+    // 日期范围筛选
+    if (filters.startDate) {
+      const startDateStr = format(filters.startDate, 'yyyy-MM-dd')
+      filtered = filtered.filter(payment => payment.paymentDate >= startDateStr)
+    }
+
+    if (filters.endDate) {
+      const endDateStr = format(filters.endDate, 'yyyy-MM-dd')
+      filtered = filtered.filter(payment => payment.paymentDate <= endDateStr)
+    }
+
+    setPayments(filtered)
+  }
+
+  // 当筛选条件改变时应用筛选
+  useEffect(() => {
+    applyFilters()
+  }, [filters, allPayments])
+
+  // 清除筛选条件
+  const clearFilters = () => {
+    setFilters({
+      searchTerm: '',
+      status: 'all',
+      startDate: null,
+      endDate: null,
+      currency: 'all'
+    })
+  }
+
+  // 处理单个支付记录的选择
+  const handlePaymentSelection = (paymentId: string, selected: boolean) => {
+    if (selected) {
+      setSelectedPayments(prev => [...prev, paymentId])
+    } else {
+      setSelectedPayments(prev => prev.filter(id => id !== paymentId))
+    }
+  }
+
+  // 当支付记录列表改变时，清理无效的选择
+  useEffect(() => {
+    const validIds = payments.map(p => p.id)
+    setSelectedPayments(prev => prev.filter(id => validIds.includes(id)))
+  }, [payments])
 
   return (
-    <div className="space-y-4">
-      {/* Header with Add Button and Search */}
-      <PaymentHistoryHeader
-        paymentCount={filteredPayments.length}
-        searchTerm={searchTerm}
-        onSearchChange={setSearchTerm}
-        onAddPayment={() => setShowAddForm(true)}
-      />
+    <div className="space-y-6">
+      {/* 支付历史统计 */}
+      <PaymentHistoryStats subscriptionId={subscriptionId} />
 
-      {/* Payment List */}
-      <div className="space-y-2">
-        <PaymentListState
-          isLoading={isLoading}
-          error={error}
-          isEmpty={filteredPayments.length === 0}
-          searchTerm={searchTerm}
-          onRetry={fetchPaymentHistory}
-        />
-        
-        {!isLoading && !error && filteredPayments.map((payment) => (
-          <PaymentListItem
-            key={payment.id}
-            payment={payment}
-            onEdit={setEditingPayment}
-            onDelete={() => handleDeleteClick(payment.id, subscriptionName)}
+      {/* 标签页导航 */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="list">支付记录</TabsTrigger>
+          <TabsTrigger value="report">统计报告</TabsTrigger>
+        </TabsList>
+
+        {/* 支付记录列表 */}
+        <TabsContent value="list" className="space-y-4">
+          {/* 筛选器 */}
+          <PaymentHistoryFilters
+            filters={filters}
+            onFiltersChange={setFilters}
+            onClearFilters={clearFilters}
           />
-        ))}
-      </div>
+
+          {/* Header with Add Button and Bulk Actions Toggle */}
+          <div className="flex items-center justify-between">
+            <PaymentHistoryHeader
+              paymentCount={payments.length}
+              searchTerm={filters.searchTerm}
+              onSearchChange={(value) => setFilters(prev => ({ ...prev, searchTerm: value }))}
+              onAddPayment={() => setShowAddForm(true)}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowBulkActions(!showBulkActions)
+                if (showBulkActions) {
+                  setSelectedPayments([]) // 清空选择
+                }
+              }}
+              className="gap-2"
+            >
+              {showBulkActions ? '取消批量操作' : '批量操作'}
+            </Button>
+          </div>
+
+          {/* 批量操作栏 */}
+          {showBulkActions && (
+            <PaymentBulkActions
+              payments={payments}
+              selectedPayments={selectedPayments}
+              onSelectionChange={setSelectedPayments}
+              onRefresh={fetchPaymentHistory}
+            />
+          )}
+
+          {/* Payment List */}
+          <div className="space-y-2">
+            <PaymentListState
+              isLoading={isLoading}
+              error={error}
+              isEmpty={payments.length === 0}
+              searchTerm={filters.searchTerm}
+              onRetry={fetchPaymentHistory}
+            />
+            
+            {!isLoading && !error && payments.map((payment) => (
+              <PaymentListItem
+                key={payment.id}
+                payment={payment}
+                onEdit={setEditingPayment}
+                onDelete={() => handleDeleteClick(payment.id, subscriptionName)}
+                isSelected={selectedPayments.includes(payment.id)}
+                onSelectionChange={handlePaymentSelection}
+                showSelection={showBulkActions}
+              />
+            ))}
+          </div>
+        </TabsContent>
+
+        {/* 统计报告 */}
+        <TabsContent value="report">
+          <PaymentHistoryReport subscriptionId={subscriptionId} />
+        </TabsContent>
+      </Tabs>
 
       {/* Payment History Sheet */}
       <PaymentHistorySheet

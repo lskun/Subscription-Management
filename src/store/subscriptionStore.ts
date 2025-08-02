@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 import { convertCurrency } from '@/utils/currency'
 import { useSettingsStore } from './settingsStore'
 import { isSubscriptionDue, processSubscriptionRenewal } from '@/lib/subscription-utils'
-import { apiClient } from '@/utils/api-client'
+import { supabaseSubscriptionService } from '@/services/supabaseSubscriptionService'
 
 // Helper to calculate the last billing date from the next one
 const calculateLastBillingDate = (nextBillingDate: string, billingCycle: BillingCycle): string => {
@@ -22,51 +22,6 @@ const calculateLastBillingDate = (nextBillingDate: string, billingCycle: Billing
   return nextDate.toISOString().split('T')[0]
 }
 
-
-// Helper function to transform data from API (snake_case) to frontend (camelCase)
-const transformFromApi = (sub: any): Subscription => {
-  return {
-    id: sub.id,
-    name: sub.name,
-    plan: sub.plan,
-    billingCycle: sub.billing_cycle,
-    nextBillingDate: sub.next_billing_date,
-    lastBillingDate: sub.last_billing_date,
-    amount: sub.amount,
-    currency: sub.currency,
-    paymentMethodId: sub.payment_method_id,
-    startDate: sub.start_date,
-    status: sub.status,
-    categoryId: sub.category_id,
-    renewalType: sub.renewal_type || 'manual',
-    notes: sub.notes,
-    website: sub.website,
-    // Optional display fields populated by joins
-    paymentMethod: sub.payment_method,
-    category: sub.category,
-  }
-}
-
-// Helper function to transform data from frontend (camelCase) to API (snake_case)
-const transformToApi = (sub: Partial<Subscription>) => {
-  const result: any = {}
-  if (sub.name !== undefined) result.name = sub.name
-  if (sub.plan !== undefined) result.plan = sub.plan
-  if (sub.billingCycle !== undefined) result.billing_cycle = sub.billingCycle
-  if (sub.nextBillingDate !== undefined) result.next_billing_date = sub.nextBillingDate
-  if (sub.lastBillingDate !== undefined) result.last_billing_date = sub.lastBillingDate
-  if (sub.amount !== undefined) result.amount = sub.amount
-  if (sub.currency !== undefined) result.currency = sub.currency
-  if (sub.paymentMethodId !== undefined) result.payment_method_id = sub.paymentMethodId
-  if (sub.startDate !== undefined) result.start_date = sub.startDate
-  if (sub.status !== undefined) result.status = sub.status
-  if (sub.categoryId !== undefined) result.category_id = sub.categoryId
-  if (sub.renewalType !== undefined) result.renewal_type = sub.renewalType
-  if (sub.notes !== undefined) result.notes = sub.notes
-  if (sub.website !== undefined) result.website = sub.website
-  return result
-}
-
 export type SubscriptionStatus = 'active' | 'trial' | 'cancelled'
 export type BillingCycle = 'monthly' | 'yearly' | 'quarterly'
 export type RenewalType = 'auto' | 'manual'
@@ -74,7 +29,7 @@ export type RenewalType = 'auto' | 'manual'
 export type SubscriptionCategory = 'video' | 'music' | 'software' | 'cloud' | 'news' | 'game' | 'other' | string
 
 export interface Subscription {
-  id: number // Changed from string to number
+  id: string // Changed to UUID string for Supabase
   name: string
   plan: string
   billingCycle: BillingCycle
@@ -82,10 +37,10 @@ export interface Subscription {
   lastBillingDate: string | null
   amount: number
   currency: string
-  paymentMethodId: number // Changed to foreign key
+  paymentMethodId: string // Changed to UUID string for Supabase
   startDate: string
   status: SubscriptionStatus
-  categoryId: number // Changed to foreign key
+  categoryId: string // Changed to UUID string for Supabase
   renewalType: RenewalType
   notes: string
   website?: string
@@ -96,15 +51,17 @@ export interface Subscription {
 
 // Define the structured options
 interface CategoryOption {
-  id: number
+  id: string // Changed to UUID string for Supabase
   value: string
   label: string
+  is_default?: boolean
 }
 
 interface PaymentMethodOption {
-  id: number
+  id: string // Changed to UUID string for Supabase
   value: string
   label: string
+  is_default?: boolean
 }
 
 interface SubscriptionPlanOption {
@@ -121,13 +78,24 @@ interface SubscriptionState {
   subscriptionPlans: SubscriptionPlanOption[]
   isLoading: boolean
   error: string | null
+  // Request deduplication
+  _fetchPromises: {
+    subscriptions?: Promise<void>
+    categories?: Promise<void>
+    paymentMethods?: Promise<void>
+  }
+  _lastFetch: {
+    subscriptions?: number
+    categories?: number
+    paymentMethods?: number
+  }
 
   // CRUD operations
   addSubscription: (subscription: Omit<Subscription, 'id' | 'lastBillingDate'>) => Promise<{ error: any | null }>
   bulkAddSubscriptions: (subscriptions: Omit<Subscription, 'id' | 'lastBillingDate'>[]) => Promise<{ error: any | null }>
-  updateSubscription: (id: number, subscription: Partial<Subscription>) => Promise<{ error: any | null }>
-  deleteSubscription: (id: number) => Promise<{ error: any | null }>
-  resetSubscriptions: () => void
+  updateSubscription: (id: string, subscription: Partial<Subscription>) => Promise<{ error: any | null }>
+  deleteSubscription: (id: string) => Promise<{ error: any | null }>
+  resetSubscriptions: () => Promise<{ error: any | null }>
   fetchSubscriptions: () => Promise<void>
   fetchCategories: () => Promise<void>
   fetchPaymentMethods: () => Promise<void>
@@ -135,7 +103,7 @@ interface SubscriptionState {
   // Renewal operations
   processAutoRenewals: (skipRefresh?: boolean) => Promise<{ processed: number; errors: number }>
   processExpiredSubscriptions: (skipRefresh?: boolean) => Promise<{ processed: number; errors: number }>
-  manualRenewSubscription: (id: number) => Promise<{ error: any | null; renewalData: any | null }>
+  manualRenewSubscription: (id: string) => Promise<{ error: any | null; renewalData: any | null }>
 
   // Combined initialization
   initializeWithRenewals: () => Promise<void>
@@ -151,42 +119,21 @@ interface SubscriptionState {
   addSubscriptionPlan: (plan: SubscriptionPlanOption) => void
   editSubscriptionPlan: (oldValue: string, newPlan: SubscriptionPlanOption) => void
   deleteSubscriptionPlan: (value: string) => void
-  
+
   // Stats and analytics
   getTotalMonthlySpending: () => number
   getTotalYearlySpending: () => number
   getUpcomingRenewals: (days: number) => Subscription[]
   getRecentlyPaid: (days: number) => Subscription[]
   getSpendingByCategory: () => Record<string, number>
-  
+
   // Get unique categories from subscriptions
   getUniqueCategories: () => CategoryOption[]
 }
 
-// Initial options
-const initialCategories: CategoryOption[] = [
-  { id: 1, value: 'video', label: 'Video Streaming' },
-  { id: 2, value: 'music', label: 'Music Streaming' },
-  { id: 3, value: 'software', label: 'Software' },
-  { id: 4, value: 'cloud', label: 'Cloud Storage' },
-  { id: 5, value: 'news', label: 'News & Magazines' },
-  { id: 6, value: 'game', label: 'Games' },
-  { id: 7, value: 'productivity', label: 'Productivity' },
-  { id: 8, value: 'education', label: 'Education' },
-  { id: 9, value: 'finance', label: 'Finance' },
-  { id: 11, value: 'other', label: 'Other' }
-]
-
-const initialPaymentMethods: PaymentMethodOption[] = [
-  { id: 1, value: 'creditcard', label: 'Credit Card' },
-  { id: 2, value: 'debitcard', label: 'Debit Card' },
-  { id: 3, value: 'paypal', label: 'PayPal' },
-  { id: 4, value: 'applepay', label: 'Apple Pay' },
-  { id: 5, value: 'googlepay', label: 'Google Pay' },
-  { id: 6, value: 'banktransfer', label: 'Bank Transfer' },
-  { id: 7, value: 'crypto', label: 'Cryptocurrency' },
-  { id: 8, value: 'other', label: 'Other' }
-]
+// Initial options (will be replaced by data from Supabase)
+const initialCategories: CategoryOption[] = []
+const initialPaymentMethods: PaymentMethodOption[] = []
 
 const initialSubscriptionPlans: SubscriptionPlanOption[] = [
   { value: 'netflix-basic', label: 'Basic', service: 'Netflix' },
@@ -214,57 +161,144 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       subscriptionPlans: initialSubscriptionPlans,
       isLoading: false,
       error: null,
-      
-      // Fetch subscriptions from the backend API
+      _fetchPromises: {},
+      _lastFetch: {},
+
+      // Fetch subscriptions from Supabase with deduplication
       fetchSubscriptions: async () => {
-        set({ isLoading: true, error: null })
-        try {
-          const data = await apiClient.get<any[]>('/subscriptions')
+        const state = get()
+        const now = Date.now()
+        const CACHE_DURATION = 30000 // 30 seconds cache
 
-          const transformedData = data.map(transformFromApi)
-          set({ subscriptions: transformedData, isLoading: false })
-        } catch (error: any) {
-          console.error('Error fetching subscriptions:', error)
-          set({ error: error.message, isLoading: false, subscriptions: [] }) // Clear subscriptions on error
+        // Check if we have a recent fetch or ongoing request
+        if (state._lastFetch.subscriptions && (now - state._lastFetch.subscriptions) < CACHE_DURATION) {
+          console.log('跳过订阅数据获取，使用缓存数据')
+          return // Skip if recently fetched
         }
+
+        if (state._fetchPromises.subscriptions) {
+          console.log('等待现有的订阅数据获取请求')
+          return state._fetchPromises.subscriptions // Return existing promise
+        }
+
+        const fetchPromise = (async () => {
+          set({ isLoading: true, error: null })
+          try {
+            console.log('开始获取订阅数据...')
+            const subscriptions = await supabaseSubscriptionService.getAllSubscriptions()
+            console.log(`成功获取 ${subscriptions.length} 条订阅数据，正在更新store...`)
+            set({
+              subscriptions,
+              isLoading: false,
+              _lastFetch: { ...get()._lastFetch, subscriptions: now }
+            })
+            console.log(`Store更新完成，当前订阅数: ${get().subscriptions.length}`)
+          } catch (error: any) {
+            console.error('Error fetching subscriptions:', error)
+            set({ error: error.message, isLoading: false, subscriptions: [] })
+          } finally {
+            // Clear the promise after completion
+            set(state => ({
+              _fetchPromises: { ...state._fetchPromises, subscriptions: undefined }
+            }))
+          }
+        })()
+
+        set(state => ({
+          _fetchPromises: { ...state._fetchPromises, subscriptions: fetchPromise }
+        }))
+
+        return fetchPromise
       },
 
-      // Fetch categories from API
+      // Fetch categories from Supabase with deduplication
       fetchCategories: async () => {
-        try {
-          const data = await apiClient.get<CategoryOption[]>('/categories')
+        const state = get()
+        const now = Date.now()
+        const CACHE_DURATION = 60000 // 1 minute cache for categories
 
-          set({ categories: data })
-        } catch (error) {
-          console.error('Error fetching categories:', error)
+        // Check if we have a recent fetch or ongoing request
+        if (state._lastFetch.categories && (now - state._lastFetch.categories) < CACHE_DURATION) {
+          return // Skip if recently fetched
         }
+
+        if (state._fetchPromises.categories) {
+          return state._fetchPromises.categories // Return existing promise
+        }
+
+        const fetchPromise = (async () => {
+          try {
+            const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
+            const categories = await supabaseCategoriesService.getAllCategories()
+            set({
+              categories,
+              _lastFetch: { ...get()._lastFetch, categories: now }
+            })
+          } catch (error) {
+            console.error('Error fetching categories:', error)
+          } finally {
+            // Clear the promise after completion
+            set(state => ({
+              _fetchPromises: { ...state._fetchPromises, categories: undefined }
+            }))
+          }
+        })()
+
+        set(state => ({
+          _fetchPromises: { ...state._fetchPromises, categories: fetchPromise }
+        }))
+
+        return fetchPromise
       },
 
-      // Fetch payment methods from API
+      // Fetch payment methods from Supabase with deduplication
       fetchPaymentMethods: async () => {
-        try {
-          const data = await apiClient.get<PaymentMethodOption[]>('/payment-methods')
+        const state = get()
+        const now = Date.now()
+        const CACHE_DURATION = 60000 // 1 minute cache for payment methods
 
-          set({ paymentMethods: data })
-        } catch (error) {
-          console.error('Error fetching payment methods:', error)
+        // Check if we have a recent fetch or ongoing request
+        if (state._lastFetch.paymentMethods && (now - state._lastFetch.paymentMethods) < CACHE_DURATION) {
+          return // Skip if recently fetched
         }
+
+        if (state._fetchPromises.paymentMethods) {
+          return state._fetchPromises.paymentMethods // Return existing promise
+        }
+
+        const fetchPromise = (async () => {
+          try {
+            const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
+            const paymentMethods = await supabasePaymentMethodsService.getAllPaymentMethods()
+            set({
+              paymentMethods,
+              _lastFetch: { ...get()._lastFetch, paymentMethods: now }
+            })
+          } catch (error) {
+            console.error('Error fetching payment methods:', error)
+          } finally {
+            // Clear the promise after completion
+            set(state => ({
+              _fetchPromises: { ...state._fetchPromises, paymentMethods: undefined }
+            }))
+          }
+        })()
+
+        set(state => ({
+          _fetchPromises: { ...state._fetchPromises, paymentMethods: fetchPromise }
+        }))
+
+        return fetchPromise
       },
-      
+
       // Add a new subscription
       addSubscription: async (subscription) => {
         try {
-          const subscriptionWithLastBilling = {
-            ...subscription,
-            lastBillingDate: calculateLastBillingDate(
-              subscription.nextBillingDate,
-              subscription.billingCycle
-            )
-          }
-          const apiSubscription = transformToApi(subscriptionWithLastBilling)
-          await apiClient.post('/protected/subscriptions', apiSubscription)
-
-          // Refetch all subscriptions to get the new one with its DB-generated ID
+          await supabaseSubscriptionService.createSubscription(subscription)
+          // Clear analytics cache since data has changed
+          const { dashboardAnalyticsService } = await import('@/services/dashboardAnalyticsService')
+          dashboardAnalyticsService.clearCache()
+          // Refetch all subscriptions to get the updated list
           await get().fetchSubscriptions()
           return { error: null }
         } catch (error: any) {
@@ -273,48 +307,27 @@ export const useSubscriptionStore = create<SubscriptionState>()(
           return { error }
         }
       },
-      
+
       // Bulk add subscriptions
       bulkAddSubscriptions: async (subscriptions) => {
         try {
-          const apiSubscriptions = subscriptions.map(sub => {
-            const subWithLastBilling = {
-              ...sub,
-              lastBillingDate: calculateLastBillingDate(
-                sub.nextBillingDate,
-                sub.billingCycle
-              )
-            };
-            return transformToApi(subWithLastBilling);
-          });
-
-          await apiClient.post('/protected/subscriptions/bulk', apiSubscriptions);
-
-          await get().fetchSubscriptions();
-          return { error: null };
+          await supabaseSubscriptionService.bulkCreateSubscriptions(subscriptions)
+          await get().fetchSubscriptions()
+          return { error: null }
         } catch (error: any) {
-          console.error('Error bulk adding subscriptions:', error);
-          set({ error: error.message });
-          return { error };
+          console.error('Error bulk adding subscriptions:', error)
+          set({ error: error.message })
+          return { error }
         }
       },
 
       // Update an existing subscription
       updateSubscription: async (id, updatedSubscription) => {
         try {
-          const originalSubscription = get().subscriptions.find(sub => sub.id === id)
-          const subscriptionWithLastBilling = { ...updatedSubscription }
-
-          if (originalSubscription && updatedSubscription.nextBillingDate && updatedSubscription.nextBillingDate !== originalSubscription.nextBillingDate) {
-            const billingCycle = updatedSubscription.billingCycle || originalSubscription.billingCycle
-            subscriptionWithLastBilling.lastBillingDate = calculateLastBillingDate(
-              updatedSubscription.nextBillingDate,
-              billingCycle
-            )
-          }
-          const apiSubscription = transformToApi(subscriptionWithLastBilling)
-          await apiClient.put(`/protected/subscriptions/${id}`, apiSubscription)
-          
+          await supabaseSubscriptionService.updateSubscription(id, updatedSubscription)
+          // Clear analytics cache since data has changed
+          const { dashboardAnalyticsService } = await import('@/services/dashboardAnalyticsService')
+          dashboardAnalyticsService.clearCache()
           // Refetch to ensure data consistency
           await get().fetchSubscriptions()
           return { error: null }
@@ -324,12 +337,14 @@ export const useSubscriptionStore = create<SubscriptionState>()(
           return { error }
         }
       },
-      
+
       // Delete a subscription
       deleteSubscription: async (id) => {
         try {
-          await apiClient.delete(`/protected/subscriptions/${id}`)
-
+          await supabaseSubscriptionService.deleteSubscription(id)
+          // Clear analytics cache since data has changed
+          const { dashboardAnalyticsService } = await import('@/services/dashboardAnalyticsService')
+          dashboardAnalyticsService.clearCache()
           // Refetch to reflect the deletion
           await get().fetchSubscriptions()
           return { error: null }
@@ -340,96 +355,115 @@ export const useSubscriptionStore = create<SubscriptionState>()(
         }
       },
 
-      // Reset subscriptions by calling the backend endpoint
+      // Reset subscriptions by calling Supabase service
       resetSubscriptions: async () => {
         try {
-          await apiClient.post('/protected/subscriptions/reset');
-
+          await supabaseSubscriptionService.resetAllSubscriptions()
           // Refetch to ensure the UI is cleared
-          await get().fetchSubscriptions();
-          return { error: null };
+          await get().fetchSubscriptions()
+          return { error: null }
         } catch (error: any) {
-          console.error('Error resetting subscriptions:', error);
-          set({ error: error.message });
-          return { error };
+          console.error('Error resetting subscriptions:', error)
+          set({ error: error.message })
+          return { error }
         }
       },
-      
+
       // Add a new category option
       addCategory: async (category) => {
         try {
-          await apiClient.post('/protected/categories', category);
-
+          const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
+          await supabaseCategoriesService.createCategory(category)
           // Refresh categories from server
-          await get().fetchCategories();
+          await get().fetchCategories()
         } catch (error) {
-          console.error('Error adding category:', error);
-          throw error;
+          console.error('Error adding category:', error)
+          throw error
         }
       },
 
       // Edit a category option
       editCategory: async (oldValue, newCategory) => {
         try {
-          await apiClient.put(`/protected/categories/${oldValue}`, newCategory);
-
+          const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
+          // Find category by value first
+          const existingCategory = await supabaseCategoriesService.getCategoryByValue(oldValue)
+          if (!existingCategory) {
+            throw new Error('分类不存在')
+          }
+          await supabaseCategoriesService.updateCategory(existingCategory.id, newCategory)
           // Refresh categories from server
-          await get().fetchCategories();
+          await get().fetchCategories()
         } catch (error) {
-          console.error('Error updating category:', error);
-          throw error;
+          console.error('Error updating category:', error)
+          throw error
         }
       },
 
       // Delete a category option
       deleteCategory: async (value) => {
         try {
-          await apiClient.delete(`/protected/categories/${value}`);
-
+          const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
+          // Find category by value first
+          const existingCategory = await supabaseCategoriesService.getCategoryByValue(value)
+          if (!existingCategory) {
+            throw new Error('分类不存在')
+          }
+          await supabaseCategoriesService.deleteCategory(existingCategory.id)
           // Refresh categories from server
-          await get().fetchCategories();
+          await get().fetchCategories()
         } catch (error) {
-          console.error('Error deleting category:', error);
-          throw error;
+          console.error('Error deleting category:', error)
+          throw error
         }
       },
 
       // Add a new payment method option
       addPaymentMethod: async (paymentMethod) => {
         try {
-          await apiClient.post('/protected/payment-methods', paymentMethod);
-
+          const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
+          await supabasePaymentMethodsService.createPaymentMethod(paymentMethod)
           // Refresh payment methods from server
-          await get().fetchPaymentMethods();
+          await get().fetchPaymentMethods()
         } catch (error) {
-          console.error('Error adding payment method:', error);
-          throw error;
+          console.error('Error adding payment method:', error)
+          throw error
         }
       },
 
       // Edit a payment method option
       editPaymentMethod: async (oldValue, newPaymentMethod) => {
         try {
-          await apiClient.put(`/protected/payment-methods/${oldValue}`, newPaymentMethod);
-
+          const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
+          // Find payment method by value first
+          const existingPaymentMethod = await supabasePaymentMethodsService.getPaymentMethodByValue(oldValue)
+          if (!existingPaymentMethod) {
+            throw new Error('支付方式不存在')
+          }
+          await supabasePaymentMethodsService.updatePaymentMethod(existingPaymentMethod.id, newPaymentMethod)
           // Refresh payment methods from server
-          await get().fetchPaymentMethods();
+          await get().fetchPaymentMethods()
         } catch (error) {
-          console.error('Error updating payment method:', error);
-          throw error;
+          console.error('Error updating payment method:', error)
+          throw error
         }
       },
 
       // Delete a payment method option
       deletePaymentMethod: async (value) => {
         try {
-          await apiClient.delete(`/protected/payment-methods/${value}`);
-
+          const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
+          // Find payment method by value first
+          const existingPaymentMethod = await supabasePaymentMethodsService.getPaymentMethodByValue(value)
+          if (!existingPaymentMethod) {
+            throw new Error('支付方式不存在')
+          }
+          await supabasePaymentMethodsService.deletePaymentMethod(existingPaymentMethod.id)
           // Refresh payment methods from server
-          await get().fetchPaymentMethods();
+          await get().fetchPaymentMethods()
         } catch (error) {
-          console.error('Error deleting payment method:', error);
-          throw error;
+          console.error('Error deleting payment method:', error)
+          throw error
         }
       },
 
@@ -455,18 +489,25 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       deleteSubscriptionPlan: (value) => set((state) => {
         return { subscriptionPlans: state.subscriptionPlans.filter(p => p.value !== value) };
       }),
-      
+
       // Get total monthly spending
       getTotalMonthlySpending: () => {
         const { subscriptions } = get();
         const { currency: userCurrency } = useSettingsStore.getState();
-        
+
         return subscriptions
           .filter(sub => sub.status === 'active')
           .reduce((total, sub) => {
+            // Ensure amount is a number
+            const amount = typeof sub.amount === 'number' ? sub.amount : parseFloat(sub.amount) || 0
+
+            // Ensure currencies are strings
+            const fromCurrency = typeof sub.currency === 'string' ? sub.currency : 'CNY'
+            const toCurrency = typeof userCurrency === 'string' ? userCurrency : 'CNY'
+
             // Convert the amount to user's preferred currency
-            const convertedAmount = convertCurrency(sub.amount, sub.currency, userCurrency);
-            
+            const convertedAmount = convertCurrency(amount, fromCurrency, toCurrency);
+
             switch (sub.billingCycle) {
               case 'monthly':
                 return total + convertedAmount;
@@ -479,18 +520,25 @@ export const useSubscriptionStore = create<SubscriptionState>()(
             }
           }, 0);
       },
-      
+
       // Get total yearly spending
       getTotalYearlySpending: () => {
         const { subscriptions } = get();
         const { currency: userCurrency } = useSettingsStore.getState();
-        
+
         return subscriptions
           .filter(sub => sub.status === 'active')
           .reduce((total, sub) => {
+            // Ensure amount is a number
+            const amount = typeof sub.amount === 'number' ? sub.amount : parseFloat(sub.amount) || 0
+
+            // Ensure currencies are strings
+            const fromCurrency = typeof sub.currency === 'string' ? sub.currency : 'CNY'
+            const toCurrency = typeof userCurrency === 'string' ? userCurrency : 'CNY'
+
             // Convert the amount to user's preferred currency
-            const convertedAmount = convertCurrency(sub.amount, sub.currency, userCurrency);
-            
+            const convertedAmount = convertCurrency(amount, fromCurrency, toCurrency);
+
             switch (sub.billingCycle) {
               case 'monthly':
                 return total + (convertedAmount * 12);
@@ -503,85 +551,129 @@ export const useSubscriptionStore = create<SubscriptionState>()(
             }
           }, 0);
       },
-      
+
       // Get upcoming renewals for the next N days
       getUpcomingRenewals: (days) => {
         const { subscriptions } = get()
+        console.log(`获取未来 ${days} 天的续费提醒，总订阅数: ${subscriptions.length}`)
+
         const today = new Date()
         today.setHours(0, 0, 0, 0) // Set to start of day for accurate comparison
         const futureDate = new Date()
         futureDate.setDate(today.getDate() + days)
         futureDate.setHours(23, 59, 59, 999) // Set to end of day
 
-        return subscriptions
+        console.log(`日期范围: ${today.toISOString()} 到 ${futureDate.toISOString()}`)
+
+        const upcomingRenewals = subscriptions
           .filter(sub => {
             const billingDate = new Date(sub.nextBillingDate)
             billingDate.setHours(0, 0, 0, 0) // Set to start of day for accurate comparison
-            return sub.status === 'active' &&
-                   billingDate >= today &&
-                   billingDate <= futureDate
+            const isActive = sub.status === 'active'
+            const isInRange = billingDate >= today && billingDate <= futureDate
+            console.log(`订阅 ${sub.name} nextBillingDate: ${sub.nextBillingDate}, 状态: ${sub.status}, 是否在范围内: ${isInRange}`)
+            return isActive && isInRange
           })
           .sort((a, b) =>
             new Date(a.nextBillingDate).getTime() - new Date(b.nextBillingDate).getTime()
           )
+
+        console.log(`找到 ${upcomingRenewals.length} 个即将续费的订阅:`, upcomingRenewals.map(s => s.name))
+        return upcomingRenewals
       },
-      
+
       // Get recently paid subscriptions for the last N days
       getRecentlyPaid: (days) => {
         const { subscriptions } = get()
+        console.log(`获取最近 ${days} 天的支付记录，总订阅数: ${subscriptions.length}`)
+
         const today = new Date()
         today.setHours(23, 59, 59, 999) // Set to end of day to include today
         const pastDate = new Date()
         pastDate.setDate(today.getDate() - days)
         pastDate.setHours(0, 0, 0, 0) // Set to start of day
 
-        return subscriptions
+        console.log(`日期范围: ${pastDate.toISOString()} 到 ${today.toISOString()}`)
+
+        const recentlyPaid = subscriptions
           .filter(sub => {
-            if (!sub.lastBillingDate) return false
+            if (!sub.lastBillingDate) {
+              console.log(`订阅 ${sub.name} 没有 lastBillingDate`)
+              return false
+            }
             const billingDate = new Date(sub.lastBillingDate)
             billingDate.setHours(0, 0, 0, 0) // Set to start of day for accurate comparison
-            return billingDate >= pastDate && billingDate <= today
+            const isInRange = billingDate >= pastDate && billingDate <= today
+            console.log(`订阅 ${sub.name} lastBillingDate: ${sub.lastBillingDate}, 是否在范围内: ${isInRange}`)
+            return isInRange
           })
           .sort((a, b) =>
             new Date(b.lastBillingDate!).getTime() - new Date(a.lastBillingDate!).getTime()
           )
+
+        console.log(`找到 ${recentlyPaid.length} 个最近支付的订阅:`, recentlyPaid.map(s => s.name))
+        return recentlyPaid
       },
-      
+
       // Get spending by category
       getSpendingByCategory: () => {
         const { subscriptions, categories } = get();
         const { currency: userCurrency } = useSettingsStore.getState();
 
-        // Get all unique category IDs from subscriptions
-        const uniqueCategoryIds = [...new Set(subscriptions.map(sub => sub.categoryId).filter(id => id != null))];
+        console.log(`计算分类支出，总订阅数: ${subscriptions.length}, 分类数: ${categories.length}`)
+        console.log(`用户货币: ${userCurrency}`)
 
-        return uniqueCategoryIds.reduce((acc, categoryId) => {
+        // Get all unique category IDs from subscriptions
+        const uniqueCategoryIds = Array.from(new Set(subscriptions.map(sub => sub.categoryId).filter(id => id != null)));
+        console.log(`唯一分类ID: ${uniqueCategoryIds.length}`, uniqueCategoryIds)
+
+        const result = uniqueCategoryIds.reduce((acc, categoryId) => {
           const category = categories.find(cat => cat.id === categoryId);
           const categoryValue = category?.value || 'other';
+          console.log(`处理分类 ${categoryId}: ${category?.label || 'Unknown'} (${categoryValue})`)
 
-          const categoryTotal = subscriptions
-            .filter(sub => sub.status === 'active' && sub.categoryId === categoryId)
-            .reduce((total, sub) => {
-              // Convert the amount to user's preferred currency
-              const convertedAmount = convertCurrency(sub.amount, sub.currency, userCurrency);
+          const categorySubscriptions = subscriptions.filter(sub => sub.status === 'active' && sub.categoryId === categoryId)
+          console.log(`分类 ${categoryValue} 有 ${categorySubscriptions.length} 个活跃订阅`)
 
-              switch (sub.billingCycle) {
-                case 'monthly':
-                  return total + (convertedAmount * 12);
-                case 'yearly':
-                  return total + convertedAmount;
-                case 'quarterly':
-                  return total + (convertedAmount * 4);
-                default:
-                  return total;
-              }
-            }, 0);
+          const categoryTotal = categorySubscriptions.reduce((total, sub) => {
+            // Ensure amount is a number
+            const amount = typeof sub.amount === 'number' ? sub.amount : parseFloat(sub.amount) || 0
 
+            // Ensure currencies are strings
+            const fromCurrency = typeof sub.currency === 'string' ? sub.currency : 'CNY'
+            const toCurrency = typeof userCurrency === 'string' ? userCurrency : 'CNY'
+
+            // Convert the amount to user's preferred currency
+            const convertedAmount = convertCurrency(amount, fromCurrency, toCurrency);
+
+            let annualAmount = 0
+            switch (sub.billingCycle) {
+              case 'monthly':
+                annualAmount = convertedAmount * 12;
+                break;
+              case 'yearly':
+                annualAmount = convertedAmount;
+                break;
+              case 'quarterly':
+                annualAmount = convertedAmount * 4;
+                break;
+              default:
+                annualAmount = 0;
+            }
+
+            console.log(`  订阅 ${sub.name}: ${amount} ${fromCurrency} -> ${convertedAmount} ${toCurrency} -> 年度: ${annualAmount}`)
+            return total + annualAmount;
+          }, 0);
+
+          console.log(`分类 ${categoryValue} 总计: ${categoryTotal}`)
           acc[categoryValue] = categoryTotal;
           return acc;
         }, {} as Record<string, number>);
+
+        console.log('分类支出结果:', result)
+        return result;
       },
-      
+
       // Get unique categories from actual subscriptions
       getUniqueCategories: () => {
         const { subscriptions, categories } = get()
@@ -600,23 +692,11 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       },
 
       // Process automatic renewals for subscriptions that are due
+      // TODO: 实现基于Supabase的自动续费逻辑
       processAutoRenewals: async (skipRefresh = false) => {
         try {
-          // Check if API key is available
-          const { apiKey } = useSettingsStore.getState()
-          if (!apiKey) {
-            console.warn('API key not configured, skipping auto renewals')
-            return { processed: 0, errors: 0 }
-          }
-
-          const result = await apiClient.post<{ processed: number; errors: number }>('/protected/subscriptions/auto-renew')
-
-          // Only refresh subscriptions if not skipped and there were changes
-          if (!skipRefresh && result.processed > 0) {
-            await get().fetchSubscriptions()
-          }
-
-          return { processed: result.processed, errors: result.errors }
+          console.warn('Auto renewals not yet implemented for Supabase')
+          return { processed: 0, errors: 0 }
         } catch (error: any) {
           console.error('Error processing auto renewals:', error)
           return { processed: 0, errors: 1 }
@@ -624,23 +704,11 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       },
 
       // Process expired manual subscriptions
+      // TODO: 实现基于Supabase的过期订阅处理逻辑
       processExpiredSubscriptions: async (skipRefresh = false) => {
         try {
-          // Check if API key is available
-          const { apiKey } = useSettingsStore.getState()
-          if (!apiKey) {
-            console.warn('API key not configured, skipping expired subscription processing')
-            return { processed: 0, errors: 0 }
-          }
-
-          const result = await apiClient.post<{ processed: number; errors: number }>('/subscriptions/process-expired')
-
-          // Only refresh subscriptions if not skipped and there were changes
-          if (!skipRefresh && result.processed > 0) {
-            await get().fetchSubscriptions()
-          }
-
-          return { processed: result.processed, errors: result.errors }
+          console.warn('Expired subscription processing not yet implemented for Supabase')
+          return { processed: 0, errors: 0 }
         } catch (error: any) {
           console.error('Error processing expired subscriptions:', error)
           return { processed: 0, errors: 1 }
@@ -648,20 +716,11 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       },
 
       // Manual renewal for a specific subscription
-      manualRenewSubscription: async (id: number) => {
+      // TODO: 实现基于Supabase的手动续费逻辑
+      manualRenewSubscription: async (id: string) => {
         try {
-          // Check if API key is available
-          const { apiKey } = useSettingsStore.getState()
-          if (!apiKey) {
-            throw new Error('API key not configured. Please set your API key in Settings.')
-          }
-
-          const result = await apiClient.post<{ renewalData: any }>(`/protected/subscriptions/${id}/manual-renew`)
-
-          // Refresh subscriptions to get updated data
-          await get().fetchSubscriptions()
-
-          return { error: null, renewalData: result.renewalData }
+          console.warn('Manual renewal not yet implemented for Supabase')
+          return { error: 'Manual renewal not yet implemented', renewalData: null }
         } catch (error: any) {
           console.error('Error renewing subscription:', error)
           return { error: error.message, renewalData: null }

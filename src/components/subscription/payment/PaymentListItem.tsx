@@ -2,6 +2,7 @@ import { Calendar, Edit, Trash2, MoreHorizontal } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,20 +10,26 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { PaymentRecord } from "@/utils/dataTransform"
+import { PaymentHistoryRecord } from "@/services/supabasePaymentHistoryService"
 import { formatWithUserCurrency } from "@/utils/currency"
 import { formatDateDisplay } from "@/utils/date"
 
 interface PaymentListItemProps {
-  payment: PaymentRecord
-  onEdit: (payment: PaymentRecord) => void
-  onDelete: (paymentId: number) => void
+  payment: PaymentHistoryRecord
+  onEdit: (payment: PaymentHistoryRecord) => void
+  onDelete: (paymentId: string) => void
+  isSelected?: boolean
+  onSelectionChange?: (paymentId: string, selected: boolean) => void
+  showSelection?: boolean
 }
 
 export function PaymentListItem({
   payment,
   onEdit,
-  onDelete
+  onDelete,
+  isSelected = false,
+  onSelectionChange,
+  showSelection = false
 }: PaymentListItemProps) {
   // Get status badge color
   const getStatusBadgeVariant = (status: string) => {
@@ -39,9 +46,19 @@ export function PaymentListItem({
   }
 
   return (
-    <Card className="group hover:bg-muted/50 transition-all duration-200 border hover:border-muted-foreground/20">
+    <Card className={`group hover:bg-muted/50 transition-all duration-200 border hover:border-muted-foreground/20 ${isSelected ? 'ring-2 ring-primary' : ''}`}>
       <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          {/* 选择框 */}
+          {showSelection && onSelectionChange && (
+            <div className="pt-1">
+              <Checkbox
+                checked={isSelected}
+                onCheckedChange={(checked) => onSelectionChange(payment.id, !!checked)}
+              />
+            </div>
+          )}
+
           <div className="flex-1 space-y-2">
             <div className="flex flex-col sm:flex-row sm:items-center gap-2">
               <span className="font-semibold text-base">
@@ -63,7 +80,7 @@ export function PaymentListItem({
                 <span className="font-medium">Billing Period:</span>
                 <br className="sm:hidden" />
                 <span className="sm:ml-2">
-                  {formatDateDisplay(payment.billingPeriod.start)} - {formatDateDisplay(payment.billingPeriod.end)}
+                  {formatDateDisplay(payment.billingPeriodStart)} - {formatDateDisplay(payment.billingPeriodEnd)}
                 </span>
               </div>
             </div>

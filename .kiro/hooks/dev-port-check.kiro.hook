@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "name": "开发服务器端口检查",
+  "description": "在执行测试验证时，先检查是否有对应的已经运行的端口，如果已经在运行，则使用已经运行的端口地址，而不是直接执行npm run dev",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "tests/**/*.spec.ts",
+      "tests/**/*.test.ts",
+      "scripts/run-e2e-tests.ts",
+      "package.json"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "检测到测试文件或测试脚本的变更。请检查测试验证流程中是否直接执行了npm run dev命令。如果是，请修改为先检查对应端口是否已经在运行：\n\n1. 检查开发服务器端口（通常是3000或5173）是否已经被占用\n2. 如果端口已经在运行，直接使用该端口进行测试\n3. 如果端口未运行，再执行npm run dev启动开发服务器\n4. 确保测试脚本能够正确处理这两种情况\n\n请提供具体的实现方案，包括端口检查的代码逻辑。"
+  }
+}

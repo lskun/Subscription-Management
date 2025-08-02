@@ -41,16 +41,22 @@ import { useToast } from "@/hooks/use-toast"
 import { ExchangeRateManager } from "@/components/ExchangeRateManager"
 import { OptionsManager } from "@/components/subscription/OptionsManager"
 import { useTheme } from "next-themes"
+import { SessionManager } from "@/components/auth/SessionManager"
+import { SessionManagementExample } from "@/components/auth/SessionManagementExample"
+import { UserProfileForm } from "@/components/user/UserProfileForm"
+import { UserPreferencesForm } from "@/components/user/UserPreferencesForm"
+import { useAuth } from "@/contexts/AuthContext"
 
 export function SettingsPage() {
   const { toast } = useToast()
   const [searchParams] = useSearchParams()
+  const { user } = useAuth()
 
   // Import modal state
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
 
   // Get tab from URL params
-  const defaultTab = searchParams.get('tab') || 'general'
+  const defaultTab = searchParams.get('tab') || 'profile'
 
   // Theme from next-themes
   const { setTheme: setNextTheme } = useTheme()
@@ -144,13 +150,39 @@ export function SettingsPage() {
       <Tabs defaultValue={defaultTab}>
         <div className="overflow-x-auto mb-4 sm:overflow-visible">
           <TabsList className="mb-4 min-w-max sm:min-w-0">
+            <TabsTrigger value="profile" className="text-xs sm:text-sm px-2 sm:px-3">个人资料</TabsTrigger>
+            <TabsTrigger value="preferences" className="text-xs sm:text-sm px-2 sm:px-3">偏好设置</TabsTrigger>
             <TabsTrigger value="general" className="text-xs sm:text-sm px-2 sm:px-3">General</TabsTrigger>
             <TabsTrigger value="currency" className="text-xs sm:text-sm px-2 sm:px-3">Currency</TabsTrigger>
             <TabsTrigger value="options" className="text-xs sm:text-sm px-2 sm:px-3">Options</TabsTrigger>
-
+            <TabsTrigger value="session" className="text-xs sm:text-sm px-2 sm:px-3">Session</TabsTrigger>
             <TabsTrigger value="data" className="text-xs sm:text-sm px-2 sm:px-3">Data</TabsTrigger>
           </TabsList>
         </div>
+
+        <TabsContent value="profile" className="space-y-4">
+          {user ? (
+            <UserProfileForm user={user} />
+          ) : (
+            <Card>
+              <CardContent className="flex items-center justify-center py-8">
+                <p className="text-muted-foreground">请先登录以管理个人资料</p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="preferences" className="space-y-4">
+          {user ? (
+            <UserPreferencesForm user={user} />
+          ) : (
+            <Card>
+              <CardContent className="flex items-center justify-center py-8">
+                <p className="text-muted-foreground">请先登录以管理偏好设置</p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
         <TabsContent value="general" className="space-y-4">
           <Card>
@@ -192,6 +224,14 @@ export function SettingsPage() {
 
         <TabsContent value="options" className="space-y-4">
           <OptionsManager />
+        </TabsContent>
+
+        <TabsContent value="session" className="space-y-4">
+          <SessionManager 
+            showHealthCheck={true}
+            showDetailedInfo={true}
+            autoRefresh={false}
+          />
         </TabsContent>
    
         <TabsContent value="data" className="space-y-4">

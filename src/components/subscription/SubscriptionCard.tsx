@@ -37,10 +37,10 @@ import {
 
 interface SubscriptionCardProps {
   subscription: Subscription
-  onEdit: (id: number) => void
-  onDelete: (id: number) => void
-  onStatusChange: (id: number, status: 'active' | 'cancelled') => void
-  onManualRenew?: (id: number) => void
+  onEdit: (id: string) => void
+  onDelete: (id: string) => void
+  onStatusChange: (id: string, status: 'active' | 'cancelled') => void
+  onManualRenew?: (id: string) => void
   onViewDetails?: (subscription: Subscription) => void
 }
 

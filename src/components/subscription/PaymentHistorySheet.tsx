@@ -23,12 +23,12 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { DatePicker } from "@/components/ui/date-picker"
 import { CurrencySelector } from "@/components/subscription/CurrencySelector"
-import { PaymentRecord } from "@/utils/dataTransform"
+import { PaymentHistoryRecord } from "@/services/supabasePaymentHistoryService"
 import { getBaseCurrency } from "@/config/currency"
 
 // Form data type for payment record (internal use with Date objects)
 interface PaymentFormData {
-  subscriptionId: number
+  subscriptionId: string
   paymentDate: Date
   amountPaid: number | string
   currency: string
@@ -40,7 +40,7 @@ interface PaymentFormData {
 
 // API data type for payment record (for submission with string dates)
 interface PaymentApiData {
-  subscriptionId: number
+  subscriptionId: string
   paymentDate: string
   amountPaid: number
   currency: string
@@ -53,8 +53,8 @@ interface PaymentApiData {
 interface PaymentHistorySheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  initialData?: PaymentRecord
-  subscriptionId: number
+  initialData?: PaymentHistoryRecord
+  subscriptionId: string
   subscriptionName: string
   onSubmit: (data: PaymentApiData) => Promise<void>
 }
@@ -96,8 +96,8 @@ export function PaymentHistorySheet({
         paymentDate: new Date(initialData.paymentDate),
         amountPaid: initialData.amountPaid,
         currency: initialData.currency,
-        billingPeriodStart: new Date(initialData.billingPeriod.start),
-        billingPeriodEnd: new Date(initialData.billingPeriod.end),
+        billingPeriodStart: new Date(initialData.billingPeriodStart),
+        billingPeriodEnd: new Date(initialData.billingPeriodEnd),
         status: initialData.status,
         notes: initialData.notes || ""
       })

@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { ChartContainer, ChartConfig } from "@/components/ui/chart"
 import { formatCurrencyAmount } from "@/utils/currency"
-import { YearlyExpense } from "@/lib/expense-analytics-api"
+import { YearlyExpense } from "@/services/supabaseAnalyticsService"
 import { TrendingUp, TrendingDown, LineChart as LineChartIcon, BarChart3 } from "lucide-react"
 import { useState } from "react"
 
@@ -61,7 +61,7 @@ export function YearlyTrendChart({ data, categoryData, currency, className }: Ye
   // 获取所有类别名称（用于分组柱状图）
   const allCategories = categoryData ? 
     Array.from(new Set(
-      categoryData.flatMap(item => Object.keys(item.categories))
+      categoryData.flatMap(item => item.categories ? Object.keys(item.categories) : [])
     )).sort() : []
 
   // 为类别分配颜色

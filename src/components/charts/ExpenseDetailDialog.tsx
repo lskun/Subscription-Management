@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 import { formatCurrencyAmount } from "@/utils/currency"
 import { transformPaymentsFromApi, type PaymentRecord } from '@/utils/dataTransform'
-import { apiClient } from '@/utils/api-client'
+import { supabase } from '@/lib/supabase'
 import { formatDateDisplay } from '@/utils/date'
 import {
   Search,
@@ -91,9 +91,18 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
         const startDateStr = startDate.toISOString().split('T')[0]
         const endDateStr = endDate.toISOString().split('T')[0]
 
-        const response = await apiClient.get<any>(`/payment-history?start_date=${startDateStr}&end_date=${endDateStr}&status=succeeded`)
-        const rawData = response.payments || response.data || response || []
-        allPaymentDetails = transformPaymentsFromApi(rawData)
+        const { data, error } = await supabase
+          .from('payment_history')
+          .select(`
+            *,
+            subscriptions!inner(name, plan)
+          `)
+          .gte('payment_date', startDateStr)
+          .lte('payment_date', endDateStr)
+          .eq('status', 'succeeded')
+        
+        if (error) throw error
+        allPaymentDetails = transformPaymentsFromApi(data || [])
 
       } else {
         // 季度或年度数据：直接从 payment-history API 获取整个时间范围的数据
@@ -103,9 +112,18 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
         const startDateStr = startDate.toISOString().split('T')[0]
         const endDateStr = endDate.toISOString().split('T')[0]
 
-        const response = await apiClient.get<any>(`/payment-history?start_date=${startDateStr}&end_date=${endDateStr}&status=succeeded`)
-        const rawData = response.payments || response.data || response || []
-        allPaymentDetails = transformPaymentsFromApi(rawData)
+        const { data, error } = await supabase
+          .from('payment_history')
+          .select(`
+            *,
+            subscriptions!inner(name, plan)
+          `)
+          .gte('payment_date', startDateStr)
+          .lte('payment_date', endDateStr)
+          .eq('status', 'succeeded')
+        
+        if (error) throw error
+        allPaymentDetails = transformPaymentsFromApi(data || [])
       }
 
       setPayments(allPaymentDetails)
