@@ -3,6 +3,7 @@ import { User, Session } from '@supabase/supabase-js'
 import { AuthService } from '@/services/authService'
 import { SessionService, SessionState } from '@/services/sessionService'
 import { UserInitializationService } from '@/services/userInitializationService'
+import { UserCacheService } from '@/services/userCacheService'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 
@@ -98,6 +99,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setSession(session)
         setUser(session?.user ?? null)
         
+        // 更新用户缓存
+        UserCacheService.updateCache(session?.user ?? null)
+        
         // 处理特定事件
         switch (event) {
           case 'SIGNED_IN':
@@ -146,9 +150,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
             break
           case 'TOKEN_REFRESHED':
             console.log('Token已刷新')
+            setLoading(false)
             break
           case 'USER_UPDATED':
             console.log('用户信息已更新')
+            setLoading(false)
+            break
+          default:
+            // 对于其他事件（如初始状态检查），确保loading状态被正确设置
+            setLoading(false)
             break
         }
 
@@ -286,6 +296,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signOut = async () => {
     try {
       setLoading(true)
+      // 清除用户缓存
+      UserCacheService.clearCache()
       // 使用SessionService的安全登出
       await SessionService.signOut('user_initiated')
     } catch (error) {

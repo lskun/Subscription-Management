@@ -4,14 +4,15 @@ import { adminAuthService } from './adminAuthService';
 
 export interface UserProfile {
   id: string;
+  display_name: string;
   email: string;
   created_at: string;
   updated_at: string;
-  last_sign_in_at?: string;
-  email_confirmed_at?: string;
   phone?: string;
   user_metadata?: Record<string, any>;
   app_metadata?: Record<string, any>;
+  last_login_time?: string;
+  is_blocked?: boolean;
 }
 
 export interface UserSubscription {
@@ -73,25 +74,34 @@ class AdminUserManagementService {
       }
 
       let query = supabase
-        .from('auth.users')
+        .from('user_profiles')
         .select('*', { count: 'exact' });
 
       // 应用搜索过滤器
       if (filters?.search) {
-        query = query.or(`email.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`);
+        query = query.or(`email.ilike.%${filters.search}%,display_name.ilike.%${filters.search}%`);
       }
 
       // 应用状态过滤器
       if (filters?.status) {
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        
         switch (filters.status) {
           case 'active':
-            query = query.not('last_sign_in_at', 'is', null);
+            // 活跃用户：最近30天内有登录记录且未被锁定
+            query = query
+              .gte('last_login_time', thirtyDaysAgo)
+              .eq('is_blocked', false);
             break;
           case 'inactive':
-            query = query.is('last_sign_in_at', null);
+            // 非活跃用户：超过30天未登录或从未登录，且未被锁定
+            query = query
+              .or(`last_login_time.is.null,last_login_time.lt.${thirtyDaysAgo}`)
+              .eq('is_blocked', false);
             break;
           case 'suspended':
-            // 这里需要根据实际的用户状态字段来过滤
+            // 暂停用户：is_blocked 为 true
+            query = query.eq('is_blocked', true);
             break;
         }
       }
@@ -265,11 +275,12 @@ class AdminUserManagementService {
       }
 
       // 根据操作类型更新用户状态
-      const updates = action === 'suspend' 
-        ? { banned_until: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString() } // 暂停一年
-        : { banned_until: null }; // 取消暂停
-
-      const { error } = await supabase.auth.admin.updateUserById(userId, updates);
+      const isBlocked = action === 'suspend';
+      
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ is_blocked: isBlocked })
+        .eq('id', userId);
 
       if (error) {
         console.error(`${action}用户失败:`, error);
@@ -397,9 +408,9 @@ class AdminUserManagementService {
       }
 
       const { data, error } = await supabase
-        .from('auth.users')
-        .select('id, email, created_at, last_sign_in_at')
-        .or(`email.ilike.%${query}%,phone.ilike.%${query}%`)
+        .from('user_profiles')
+        .select('id, email, display_name, created_at, updated_at, last_login_time')
+        .or(`display_name.ilike.%${query}%,email.ilike.%${query}%`)
         .limit(limit);
 
       if (error) {
@@ -445,57 +456,45 @@ class AdminUserManagementService {
         };
       }
 
-      // 获取总用户数
-      const { count: totalUsers, error: totalError } = await supabase
-        .from('auth.users')
-        .select('*', { count: 'exact', head: true });
+      // 使用单个查询获取所有统计信息
+      const { data: users, error } = await supabase
+        .from('user_profiles')
+        .select('created_at, last_login_time, is_blocked');
 
-      if (totalError) {
-        console.error('获取总用户数失败:', totalError);
+      if (error) {
+        console.error('获取用户统计信息失败:', error);
+        return {
+          totalUsers: 0,
+          activeUsers: 0,
+          newUsersThisMonth: 0,
+          suspendedUsers: 0,
+          error: '获取统计信息失败'
+        };
       }
 
-      // 获取活跃用户数（最近30天登录）
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const now = new Date();
+      const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-      const { count: activeUsers, error: activeError } = await supabase
-        .from('auth.users')
-        .select('*', { count: 'exact', head: true })
-        .gte('last_sign_in_at', thirtyDaysAgo.toISOString());
-
-      if (activeError) {
-        console.error('获取活跃用户数失败:', activeError);
-      }
-
-      // 获取本月新用户数
-      const thisMonth = new Date();
-      thisMonth.setDate(1);
-      thisMonth.setHours(0, 0, 0, 0);
-
-      const { count: newUsersThisMonth, error: newError } = await supabase
-        .from('auth.users')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', thisMonth.toISOString());
-
-      if (newError) {
-        console.error('获取新用户数失败:', newError);
-      }
-
-      // 获取暂停用户数
-      const { count: suspendedUsers, error: suspendedError } = await supabase
-        .from('auth.users')
-        .select('*', { count: 'exact', head: true })
-        .not('banned_until', 'is', null);
-
-      if (suspendedError) {
-        console.error('获取暂停用户数失败:', suspendedError);
-      }
+      // 计算统计信息
+      const totalUsers = users?.length || 0;
+      const newUsersThisMonth = users?.filter(user => 
+        user.created_at && new Date(user.created_at) >= thisMonth
+      ).length || 0;
+      
+      // 活跃用户：最近30天内有登录记录的用户
+      const activeUsers = users?.filter(user => 
+        user.last_login_time && new Date(user.last_login_time) >= thirtyDaysAgo
+      ).length || 0;
+      
+      // 暂停用户：is_blocked 为 true 的用户
+      const suspendedUsers = users?.filter(user => user.is_blocked === true).length || 0;
 
       return {
-        totalUsers: totalUsers || 0,
-        activeUsers: activeUsers || 0,
-        newUsersThisMonth: newUsersThisMonth || 0,
-        suspendedUsers: suspendedUsers || 0
+        totalUsers,
+        activeUsers,
+        newUsersThisMonth,
+        suspendedUsers
       };
     } catch (error) {
       console.error('获取用户统计异常:', error);

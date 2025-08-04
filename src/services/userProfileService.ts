@@ -5,37 +5,75 @@ import type {
   UserSettings, 
   UserPreferences 
 } from '@/types/userProfile'
+import { GlobalCacheService } from './globalCacheService'
+import { UserCacheService } from './userCacheService'
+
+// CacheManager 已迁移到 GlobalCacheService
 
 /**
  * 用户配置管理服务
  */
 export class UserProfileService {
   /**
-   * 获取用户配置信息
+   * 获取用户配置信息（带缓存和请求去重）
    */
   static async getUserProfile(userId?: string): Promise<UserProfile | null> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
       }
 
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', targetUserId)
-        .single()
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // 用户配置不存在，创建默认配置
-          return await this.createDefaultProfile(targetUserId)
-        }
-        throw error
+      // 生成缓存键
+      const cacheKey = GlobalCacheService.generateCacheKey('userProfile', targetUserId)
+      
+      // 检查缓存
+      const cached = GlobalCacheService.get<UserProfile>(cacheKey)
+      
+      if (cached.data) {
+        return cached.data
+      }
+      
+      if (cached.promise) {
+        console.log('等待现有的用户配置获取请求')
+        return cached.promise
       }
 
-      return data
+      // 创建新的获取Promise
+      const fetchPromise = (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('id', targetUserId)
+            .single()
+
+          if (error) {
+            if (error.code === 'PGRST116') {
+              // 用户配置不存在，创建默认配置
+              const profile = await this.createDefaultProfile(targetUserId)
+              // 设置缓存
+              GlobalCacheService.set(cacheKey, profile)
+              return profile
+            }
+            throw error
+          }
+
+          // 设置缓存
+          GlobalCacheService.set(cacheKey, data)
+          return data
+        } finally {
+          // 请求完成后清除Promise引用
+          GlobalCacheService.clearPromise(cacheKey)
+        }
+      })();
+
+      // 存储Promise以便去重
+      GlobalCacheService.setPromise(cacheKey, fetchPromise)
+      return fetchPromise
     } catch (error) {
       console.error('获取用户配置失败:', error)
       throw error
@@ -47,8 +85,9 @@ export class UserProfileService {
    */
   static async createDefaultProfile(userId: string): Promise<UserProfile> {
     try {
-      const { data: user } = await supabase.auth.getUser()
-      const userEmail = user.user?.email || ''
+      const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser()
+      const userEmail = user?.email || ''
       const displayName = userEmail.split('@')[0] || '用户'
 
       const defaultProfile = {
@@ -84,10 +123,18 @@ export class UserProfileService {
     userId?: string
   ): Promise<UserProfile> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
+      }
+
+      // 验证数据
+      const errors = this.validateProfileData(updates)
+      if (errors.length > 0) {
+        throw new Error(errors.join(', '))
       }
 
       const { data, error } = await supabase
@@ -101,7 +148,11 @@ export class UserProfileService {
         throw error
       }
 
-      return data
+      // 清除缓存，确保下次获取时能获取最新数据
+      const cacheKey = GlobalCacheService.generateCacheKey('userProfile', targetUserId)
+      GlobalCacheService.clear(cacheKey)
+      
+      return data as UserProfile
     } catch (error) {
       console.error('更新用户配置失败:', error)
       throw error
@@ -113,7 +164,9 @@ export class UserProfileService {
    */
   static async uploadAvatar(file: File, userId?: string): Promise<string> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
@@ -152,6 +205,7 @@ export class UserProfileService {
         .getPublicUrl(filePath)
 
       // 更新用户配置中的头像URL
+      // updateUserProfile 方法内部会清除缓存
       await this.updateUserProfile({ avatar_url: publicUrl }, targetUserId)
 
       return publicUrl
@@ -162,11 +216,91 @@ export class UserProfileService {
   }
 
   /**
+   * 缓存 Google 头像到 Supabase Storage
+   * @param googleAvatarUrl Google 头像 URL
+   * @param userId 用户 ID
+   * @returns 缓存后的头像 URL
+   */
+  /**
+   * 获取 Google 头像 URL（不再上传到 Supabase Storage，直接返回原始 URL）
+   * @param googleAvatarUrl Google 头像 URL
+   * @param userId 用户 ID（可选）
+   * @returns Google 头像 URL
+   */
+  static async getGoogleAvatarUrl(googleAvatarUrl: string, userId?: string): Promise<string> {
+    try {
+      let targetUserId = userId
+      
+      // 只有在没有提供 userId 时才调用 UserCacheService
+      if (!targetUserId) {
+        const user = await UserCacheService.getCurrentUser()
+        if (!user) {
+          throw new Error('用户未登录')
+        }
+        targetUserId = user.id
+      }
+
+      // 检查用户配置中是否有自定义头像（非 Google 头像）
+      const profile = await this.getUserProfile(targetUserId)
+      if (profile?.avatar_url && !profile.avatar_url.includes('googleusercontent.com')) {
+        // 已经有自定义头像，直接返回
+        return profile.avatar_url
+      }
+
+      // 直接返回 Google 头像 URL，不再上传到 Supabase Storage
+      return googleAvatarUrl
+    } catch (error) {
+      console.warn('获取 Google 头像失败:', error)
+      // 如果获取失败，返回原始 Google URL
+      return googleAvatarUrl
+    }
+  }
+
+  /**
+   * 获取用户头像 URL（优先使用缓存的头像）
+   * @param userId 用户 ID
+   * @returns 头像 URL
+   */
+  static async getUserAvatarUrl(userId?: string): Promise<string | null> {
+    try {
+      // 使用 UserCacheService 获取用户信息
+      const user = await UserCacheService.getCurrentUser()
+      if (!user) {
+        return null
+      }
+
+      const targetUserId = userId || user.id
+
+      // 获取用户配置中的头像
+      const profile = await this.getUserProfile(targetUserId)
+      
+      // 如果配置中有头像且不是 Google 头像，直接返回
+      if (profile?.avatar_url && !profile.avatar_url.includes('googleusercontent.com')) {
+        return profile.avatar_url
+      }
+
+      // 如果用户元数据中有 Google 头像，直接返回
+      const googleAvatarUrl = user.user_metadata?.avatar_url
+      if (googleAvatarUrl && googleAvatarUrl.includes('googleusercontent.com')) {
+        return await this.getGoogleAvatarUrl(googleAvatarUrl, targetUserId)
+      }
+
+      // 返回配置中的头像或 null
+      return profile?.avatar_url || null
+    } catch (error) {
+      console.warn('获取用户头像失败:', error)
+      return null
+    }
+  }
+
+  /**
    * 删除用户头像
    */
   static async deleteAvatar(userId?: string): Promise<void> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
@@ -193,6 +327,7 @@ export class UserProfileService {
       }
 
       // 清除用户配置中的头像URL
+      // updateUserProfile 方法内部会清除缓存
       await this.updateUserProfile({ avatar_url: null }, targetUserId)
     } catch (error) {
       console.error('删除头像失败:', error)
@@ -208,7 +343,9 @@ export class UserProfileService {
     userId?: string
   ): Promise<any> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
@@ -245,13 +382,15 @@ export class UserProfileService {
     userId?: string
   ): Promise<void> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
       }
-
-      const { error } = await supabase
+      
+      const { data, error } = await supabase
         .from('user_settings')
         .upsert({
           user_id: targetUserId,
@@ -269,29 +408,68 @@ export class UserProfileService {
   }
 
   /**
-   * 获取用户偏好设置
+   * 获取用户偏好设置（带缓存和请求去重）
    */
   static async getUserPreferences(userId?: string): Promise<UserPreferences> {
     try {
-      const preferences = await this.getUserSetting('preferences', userId)
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      const targetUserId = userId || user?.id
       
-      // 返回默认偏好设置，如果用户没有设置
-      const defaultPreferences: UserPreferences = {
-        theme: 'system',
-        currency: 'CNY',
-        notifications: {
-          email: true,
-          push: true,
-          renewal_reminders: true,
-          payment_confirmations: true
-        },
-        privacy: {
-          profile_visibility: 'private',
-          data_sharing: false
-        }
+      if (!targetUserId) {
+        throw new Error('用户未登录')
       }
 
-      return preferences ? { ...defaultPreferences, ...preferences } : defaultPreferences
+      // 生成缓存键
+      const cacheKey = GlobalCacheService.generateCacheKey('userPreferences', targetUserId)
+      
+      // 检查缓存
+      const cached = GlobalCacheService.get<UserPreferences>(cacheKey)
+      
+      if (cached.data) {
+        return cached.data
+      }
+      
+      if (cached.promise) {
+        console.log('等待现有的用户偏好设置获取请求')
+        return cached.promise
+      }
+
+      // 创建新的获取Promise
+      const fetchPromise = (async () => {
+        try {
+          const preferences = await this.getUserSetting('preferences', userId)
+          
+          // 返回默认偏好设置，如果用户没有设置
+          const defaultPreferences: UserPreferences = {
+            theme: 'system',
+            currency: 'CNY',
+            notifications: {
+              email: true,
+              push: true,
+              renewal_reminders: true,
+              payment_confirmations: true
+            },
+            privacy: {
+              profile_visibility: 'private',
+              data_sharing: false
+            }
+          }
+
+          const result = preferences ? { ...defaultPreferences, ...preferences } : defaultPreferences
+          
+          // 设置缓存
+          GlobalCacheService.set(cacheKey, result)
+          return result
+        } finally {
+          // 请求完成后清除Promise引用
+          GlobalCacheService.clearPromise(cacheKey)
+        }
+      })();
+
+      // 存储Promise以便去重
+      GlobalCacheService.setPromise(cacheKey, fetchPromise)
+      return fetchPromise
     } catch (error) {
       console.error('获取用户偏好设置失败:', error)
       throw error
@@ -304,12 +482,42 @@ export class UserProfileService {
   static async updateUserPreferences(
     preferences: Partial<UserPreferences>,
     userId?: string
-  ): Promise<void> {
+  ): Promise<UserPreferences> {
     try {
-      const currentPreferences = await this.getUserPreferences(userId)
-      const updatedPreferences = { ...currentPreferences, ...preferences }
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      const targetUserId = userId || user?.id
       
+      if (!targetUserId) {
+        throw new Error('用户未登录')
+      }
+
+      // 获取当前偏好设置
+      const currentPreferences = await this.getUserPreferences(userId)
+      
+      // 合并更新，确保嵌套对象正确合并
+      const updatedPreferences = {
+        ...currentPreferences,
+        ...preferences,
+        // 确保嵌套对象正确合并
+        notifications: preferences.notifications ? {
+          ...currentPreferences.notifications,
+          ...preferences.notifications
+        } : currentPreferences.notifications,
+        privacy: preferences.privacy ? {
+          ...currentPreferences.privacy,
+          ...preferences.privacy
+        } : currentPreferences.privacy
+      }
+
+      // 保存更新后的偏好设置
       await this.setUserSetting('preferences', updatedPreferences, userId)
+
+      // 清除缓存，确保下次获取时能获取最新数据
+      const cacheKey = GlobalCacheService.generateCacheKey('userPreferences', targetUserId)
+      GlobalCacheService.clear(cacheKey)
+
+      return updatedPreferences
     } catch (error) {
       console.error('更新用户偏好设置失败:', error)
       throw error
@@ -321,7 +529,9 @@ export class UserProfileService {
    */
   static async getAllUserSettings(userId?: string): Promise<UserSettings[]> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
@@ -352,7 +562,9 @@ export class UserProfileService {
     userId?: string
   ): Promise<void> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
@@ -367,6 +579,12 @@ export class UserProfileService {
       if (error) {
         throw error
       }
+
+      // 如果删除的是偏好设置，清除相关缓存
+      if (settingKey === 'preferences') {
+        const cacheKey = GlobalCacheService.generateCacheKey('userPreferences', targetUserId)
+        GlobalCacheService.clear(cacheKey)
+      }
     } catch (error) {
       console.error('删除用户设置失败:', error)
       throw error
@@ -378,7 +596,9 @@ export class UserProfileService {
    */
   static async resetAllUserSettings(userId?: string): Promise<void> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
@@ -392,9 +612,27 @@ export class UserProfileService {
       if (error) {
         throw error
       }
+
+      // 清除该用户的所有缓存
+      GlobalCacheService.clearById(targetUserId)
     } catch (error) {
       console.error('重置用户设置失败:', error)
       throw error
+    }
+  }
+
+  /**
+   * 清除用户相关的所有缓存
+   * 在需要清除所有用户相关缓存时调用
+   */
+  static clearUserCache(userId?: string): void {
+    if (userId) {
+      // 清除特定用户的所有缓存
+      GlobalCacheService.clearById(userId)
+    } else {
+      // 清除所有用户的缓存
+      GlobalCacheService.clearByType('userProfile')
+      GlobalCacheService.clearByType('userPreferences')
     }
   }
 

@@ -20,12 +20,7 @@ interface TianApiResponse {
   code: number
   msg: string
   result?: {
-    from: string
-    to: string
-    fromname: string
-    toname: string
-    rate: string
-    update: string
+    money: string
   }
 }
 

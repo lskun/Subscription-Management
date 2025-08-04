@@ -54,19 +54,55 @@ export class SupabaseCategoriesService {
   /**
    * 创建用户自定义分类
    */
-  async createCategory(categoryData: { value: string; label: string }): Promise<CategoryOption> {
+  async createCategory(categoryData: { value: string; label?: string }): Promise<CategoryOption> {
     // 获取当前用户ID
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    if (userError || !user) {
+    const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    if (!user) {
       throw new Error('用户未登录')
     }
 
+    // 检查是否存在同名的系统默认分类
+    const { data: existingDefault, error: checkDefaultError } = await supabase
+      .from('categories')
+      .select('id, value, label, is_default')
+      .eq('value', categoryData.value)
+      .eq('is_default', true)
+      .maybeSingle()
+
+    if (checkDefaultError) {
+      console.error('Error checking default category:', checkDefaultError)
+      throw new Error(`检查默认分类失败: ${checkDefaultError.message}`)
+    }
+
+    if (existingDefault) {
+      throw new Error(`无法创建分类：已存在同名的系统默认分类 "${existingDefault.label}"`)
+    }
+
+    // 检查是否存在同名的用户自定义分类
+    const { data: existingUser, error: checkUserError } = await supabase
+      .from('categories')
+      .select('id, value, label, is_default')
+      .eq('value', categoryData.value)
+      .eq('user_id', user.id)
+      .eq('is_default', false)
+      .maybeSingle()
+
+    if (checkUserError) {
+      console.error('Error checking user category:', checkUserError)
+      throw new Error(`检查用户分类失败: ${checkUserError.message}`)
+    }
+
+    if (existingUser) {
+      throw new Error(`该分类已存在：您已经创建了名为 "${existingUser.label}" 的分类`)
+    }
+
+    // 创建新分类
     const { data, error } = await supabase
       .from('categories')
       .insert({
         user_id: user.id,
         value: categoryData.value,
-        label: categoryData.label,
         is_default: false
       })
       .select('id, value, label, is_default')
@@ -85,13 +121,82 @@ export class SupabaseCategoriesService {
 
   /**
    * 更新用户自定义分类
+   * 优化版本：通过一次查询获取所有必要信息，减少数据库访问次数
    */
   async updateCategory(id: string, updateData: { value?: string; label?: string }): Promise<CategoryOption> {
+    // 获取当前用户ID
+    const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    if (!user) {
+      throw new Error('用户未登录')
+    }
+
+    // 通过一次查询获取所有必要信息：当前分类信息 + 冲突检查
+    let query = supabase
+      .from('categories')
+      .select('id, value, label, is_default, user_id')
+    
+    // 构建查询条件：获取当前分类 + 可能冲突的分类
+    if (updateData.value) {
+      query = query.or(`id.eq.${id},and(value.eq.${updateData.value},or(is_default.eq.true,and(user_id.eq.${user.id},is_default.eq.false)))`)
+    } else {
+      query = query.eq('id', id)
+    }
+
+    const { data: categories, error: queryError } = await query
+
+    if (queryError) {
+      console.error('Error querying categories:', queryError)
+      throw new Error(`查询分类失败: ${queryError.message}`)
+    }
+
+    // 查找当前要更新的分类
+    const currentCategory = categories.find(cat => cat.id === id)
+    if (!currentCategory) {
+      throw new Error('分类不存在')
+    }
+
+    // 检查是否为系统默认分类
+    if (currentCategory.is_default) {
+      throw new Error('无法编辑系统默认分类')
+    }
+
+    // 检查是否为当前用户的分类
+    if (currentCategory.user_id !== user.id) {
+      throw new Error('无权限编辑此分类')
+    }
+
+    // 如果要更新value，检查冲突
+    if (updateData.value && updateData.value !== currentCategory.value) {
+      // 检查是否存在同名的系统默认分类
+      const conflictingDefault = categories.find(cat => 
+        cat.value === updateData.value && 
+        cat.is_default === true && 
+        cat.id !== id
+      )
+      
+      if (conflictingDefault) {
+        throw new Error(`无法更新分类：已存在同名的系统默认分类 "${conflictingDefault.value}"`)
+      }
+
+      // 检查是否存在同名的其他用户自定义分类
+      const conflictingUser = categories.find(cat => 
+        cat.value === updateData.value && 
+        cat.user_id === user.id && 
+        cat.is_default === false && 
+        cat.id !== id
+      )
+      
+      if (conflictingUser) {
+        throw new Error(`该分类已存在：您已经创建了名为 "${conflictingUser.value}" 的分类`)
+      }
+    }
+
+    // 执行更新操作
     const { data, error } = await supabase
       .from('categories')
       .update(updateData)
       .eq('id', id)
-      .eq('is_default', false) // 只能更新非默认分类
       .select('id, value, label, is_default')
       .single()
 
@@ -110,6 +215,8 @@ export class SupabaseCategoriesService {
    * 删除用户自定义分类
    */
   async deleteCategory(id: string): Promise<void> {
+    console.log('开始删除分类，ID:', id)
+    
     // 检查是否有订阅使用此分类
     const { data: subscriptions, error: checkError } = await supabase
       .from('subscriptions')
@@ -122,41 +229,78 @@ export class SupabaseCategoriesService {
       throw new Error(`检查分类使用情况失败: ${checkError.message}`)
     }
 
+    console.log('检查分类使用情况结果:', subscriptions)
+
     if (subscriptions && subscriptions.length > 0) {
       throw new Error('该分类正在被订阅使用，无法删除')
     }
 
-    const { error } = await supabase
+    console.log('开始执行删除操作...')
+    const { error, data } = await supabase
       .from('categories')
       .delete()
       .eq('id', id)
       .eq('is_default', false) // 只能删除非默认分类
+      .select() // 添加select来查看删除的记录
+
+    console.log('删除操作结果:', { error, data })
 
     if (error) {
       console.error('Error deleting category:', error)
       throw new Error(`删除分类失败: ${error.message}`)
     }
+
+    if (!data || data.length === 0) {
+      console.warn('没有删除任何记录，可能是因为分类不存在或是系统默认分类')
+      throw new Error('删除失败：分类不存在或无权限删除系统默认分类')
+    }
+
+    console.log('分类删除成功:', data)
   }
 
   /**
-   * 根据value查找分类
+   * 根据value查找分类（优先返回用户自定义分类，其次是系统默认分类）
    */
   async getCategoryByValue(value: string): Promise<CategoryOption | null> {
-    const { data, error } = await supabase
+    // 获取当前用户ID
+    const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    if (!user) {
+      throw new Error('用户未登录')
+    }
+
+    // 首先尝试查找用户自定义分类
+    const { data: userCategory, error: userError2 } = await supabase
       .from('categories')
       .select('id, value, label, is_default')
       .eq('value', value)
-      .single()
+      .eq('user_id', user.id)
+      .eq('is_default', false)
+      .maybeSingle()
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return null // 记录不存在
-      }
-      console.error('Error fetching category by value:', error)
-      throw new Error(`根据值获取分类失败: ${error.message}`)
+    if (userError2) {
+      console.error('Error fetching user category by value:', userError2)
+      throw new Error(`根据值获取用户分类失败: ${userError2.message}`)
     }
 
-    return data
+    if (userCategory) {
+      return userCategory
+    }
+
+    // 如果没有找到用户自定义分类，查找系统默认分类
+    const { data: defaultCategory, error: defaultError } = await supabase
+      .from('categories')
+      .select('id, value, label, is_default')
+      .eq('value', value)
+      .eq('is_default', true)
+      .maybeSingle()
+
+    if (defaultError) {
+      console.error('Error fetching default category by value:', defaultError)
+      throw new Error(`根据值获取默认分类失败: ${defaultError.message}`)
+    }
+
+    return defaultCategory
   }
 }
 

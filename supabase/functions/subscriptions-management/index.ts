@@ -1,4 +1,6 @@
+// @ts-ignore
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+// @ts-ignore
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
@@ -82,7 +84,9 @@ serve(async (req) => {
 
   try {
     // Create Supabase client
+    //@ts-ignore
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+    //@ts-ignore
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
@@ -113,45 +117,84 @@ serve(async (req) => {
 
     console.log('Subscriptions request:', { userId: user.id, targetCurrency, filters, sorting })
 
-    // Get exchange rates for currency conversion
-    const { data: exchangeRates } = await supabase
+    // 获取汇率数据 - 只获取最新的汇率记录
+    // 先获取最新日期
+    const { data: latestDate, error: dateError } = await supabase
       .from('exchange_rates')
-      .select('from_currency, to_currency, rate, updated_at')
-      .order('updated_at', { ascending: false })
+      .select('date')
+      .order('date', { ascending: false })
+      .limit(1)
+      .single()
 
-    // Create exchange rate lookup
+    if (dateError) {
+      console.error('Error fetching latest exchange rate date:', dateError)
+    }
+
+    // 根据最新日期获取汇率数据
+    const { data: exchangeRateData, error: exchangeRateError } = await supabase
+      .from('exchange_rates')
+      .select('from_currency, to_currency, rate')
+      .eq('date', latestDate?.date)
+      .order('from_currency', { ascending: true })
+
+    if (exchangeRateError) {
+      console.error('Error fetching exchange rates:', exchangeRateError)
+    }
+
+    // 构建汇率映射 - 支持双向转换
     const rateMap = new Map<string, number>()
-    if (exchangeRates) {
-      exchangeRates.forEach(rate => {
-        const key = `${rate.from_currency}_${rate.to_currency}`
-        rateMap.set(key, rate.rate)
+    if (exchangeRateData) {
+      exchangeRateData.forEach(rate => {
+        const fromCurrency = rate.from_currency
+        const toCurrency = rate.to_currency
+        const rateValue = parseFloat(rate.rate)
+
+        // 存储正向汇率 (from -> to)
+        const forwardKey = `${fromCurrency}_${toCurrency}`
+        rateMap.set(forwardKey, rateValue)
+
+        // 存储反向汇率 (to -> from)
+        const reverseKey = `${toCurrency}_${fromCurrency}`
+        rateMap.set(reverseKey, 1 / rateValue)
       })
     }
 
+    console.log('Available exchange rates:', Array.from(rateMap.keys()))
+
     // Function to convert currency
     const convertCurrency = (amount: number, fromCurrency: string, toCurrency: string): number => {
-      if (fromCurrency === toCurrency) return amount
+      try {
+        // 如果货币相同，直接返回
+        if (fromCurrency === toCurrency) {
+          return amount
+        }
 
-      const directKey = `${fromCurrency}_${toCurrency}`
-      const reverseKey = `${toCurrency}_${fromCurrency}`
+        // 构建汇率键
+        const rateKey = `${fromCurrency}_${toCurrency}`
 
-      if (rateMap.has(directKey)) {
-        return amount * rateMap.get(directKey)!
-      } else if (rateMap.has(reverseKey)) {
-        return amount / rateMap.get(reverseKey)!
+        // 检查是否有直接汇率
+        if (rateMap.has(rateKey)) {
+          const convertedAmount = amount * rateMap.get(rateKey)!
+          console.log(`Converting ${amount} ${fromCurrency} to ${toCurrency}: ${convertedAmount} (rate: ${rateMap.get(rateKey)})`)
+          return convertedAmount
+        }
+
+        // 如果没有直接汇率，尝试通过CNY作为中间货币转换
+        const fromToCNY = `${fromCurrency}_CNY`
+        const CNYToTarget = `CNY_${toCurrency}`
+
+        if (rateMap.has(fromToCNY) && rateMap.has(CNYToTarget)) {
+          const convertedAmount = amount * rateMap.get(fromToCNY)! * rateMap.get(CNYToTarget)!
+          console.log(`Converting ${amount} ${fromCurrency} to ${toCurrency} via CNY: ${convertedAmount}`)
+          return convertedAmount
+        }
+
+        console.warn(`Missing exchange rate for ${fromCurrency} to ${toCurrency}`)
+        return amount // 返回原始金额
+      } catch (error) {
+        console.error(`货币转换出错 (${fromCurrency} 到 ${toCurrency}):`, error)
+        return amount // 出错时返回原始金额
       }
-
-      // Fallback: convert through USD if available
-      const fromUsdKey = `USD_${fromCurrency}`
-      const toUsdKey = `USD_${toCurrency}`
-
-      if (rateMap.has(fromUsdKey) && rateMap.has(toUsdKey)) {
-        const usdAmount = amount / rateMap.get(fromUsdKey)!
-        return usdAmount * rateMap.get(toUsdKey)!
-      }
-
-      console.warn(`No exchange rate found for ${fromCurrency} to ${toCurrency}`)
-      return amount // Return original amount if no conversion available
     }
 
     // Build subscription query

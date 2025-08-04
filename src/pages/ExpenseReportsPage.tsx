@@ -4,6 +4,7 @@ import { useSettingsStore } from "@/store/settingsStore"
 import {
   getDateRangePresets
 } from "@/lib/expense-analytics"
+
 import { useExpenseReportsData } from "@/hooks/useExpenseReportsData"
 import { ExpenseTrendChart } from "@/components/charts/ExpenseTrendChart"
 import { YearlyTrendChart } from "@/components/charts/YearlyTrendChart"
@@ -81,13 +82,16 @@ export function ExpenseReportsPage() {
     monthlyEndDate: currentDateRange.endDate,
     yearlyStartDate: currentYearlyDateRange.startDate,
     yearlyEndDate: currentYearlyDateRange.endDate,
-    currency: userCurrency,
+    currency: userCurrency as string,
     includeMonthlyExpenses: true,
     includeYearlyExpenses: true,
     includeCategoryExpenses: true,
     includeExpenseInfo: true,
     autoFetch: true
   })
+
+  // 创建空的月度分类费用数据，因为相关API已被移除
+  const monthlyCategoryExpenses: any[] = []
 
   // 转换 expenseInfo 数据格式以匹配 ExpenseInfoCards 组件的期望
   const expenseInfoData = useMemo(() => {
@@ -140,10 +144,10 @@ export function ExpenseReportsPage() {
           totalSpent: item.amount || 0,
           dailyAverage: (item.amount || 0) / daysInPeriod,
           activeSubscriptions: 0, // 暂时设为0，后续可以从其他数据源获取
-          paymentCount: 0, // 暂时设为0，后续可以从其他数据源获取
+          paymentCount: item.paymentCount || 0, // 使用从 Edge Function 返回的支付数量
           startDate,
           endDate,
-          currency: item.currency || userCurrency
+          currency: item.currency || (userCurrency as string)
         }
       })
     }
@@ -191,9 +195,19 @@ export function ExpenseReportsPage() {
       percentage: total > 0 ? (item.amount / total) * 100 : 0
     }))
   }, [adaptedCategoryExpenses])
+  
+  // 计算所有月度费用的总和
+  const totalMonthlyAmount = useMemo(() => {
+    return adaptedMonthlyExpenses.reduce((sum, item) => sum + item.amount, 0)
+  }, [adaptedMonthlyExpenses])
 
   // 为了兼容现有组件，创建一些别名和数据映射
-  const monthlyCategoryExpenses = adaptedCategoryExpenses
+  
+
+  
+
+
+  
   const yearlyGroupedCategoryExpenses: any[] = []
   
   // 加载状态别名
@@ -302,7 +316,7 @@ export function ExpenseReportsPage() {
                 <ExpenseTrendChart
                   data={adaptedMonthlyExpenses}
                   categoryData={monthlyCategoryExpenses}
-                  currency={userCurrency}
+                  currency={userCurrency as string}
                 />
                 {isLoadingCategoryExpenses ? (
                   <Card>
@@ -325,7 +339,7 @@ export function ExpenseReportsPage() {
                 ) : (
                   <CategoryPieChart
                     data={categoryExpensesWithPercentage}
-                    currency={userCurrency}
+                    currency={userCurrency as string}
                   />
                 )}
               </div>
@@ -351,7 +365,7 @@ export function ExpenseReportsPage() {
                   <YearlyTrendChart
                     data={adaptedYearlyExpenses}
                     categoryData={yearlyGroupedCategoryExpenses}
-                    currency={userCurrency}
+                    currency={userCurrency as string}
                   />
                   {isLoadingYearlyCategoryExpenses ? (
                     <Card>
@@ -374,7 +388,7 @@ export function ExpenseReportsPage() {
                   ) : (
                     <CategoryPieChart
                       data={categoryExpensesWithPercentage}
-                      currency={userCurrency}
+                      currency={userCurrency as string}
                     />
                   )}
                 </div>

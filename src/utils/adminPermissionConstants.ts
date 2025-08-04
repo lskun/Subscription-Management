@@ -29,6 +29,9 @@ export const ADMIN_PERMISSIONS = {
   EDIT_ADMINS: 'edit_admins',
   DELETE_ADMINS: 'delete_admins',
   ASSIGN_ADMIN_ROLES: 'assign_admin_roles',
+  VIEW_LOGS: 'view_logs',
+  VIEW_SYSTEM: 'view_system',
+  MANAGE_SYSTEM: 'manage_system',
 } as const;
 
 // 角色管理权限
@@ -151,6 +154,9 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   [ADMIN_PERMISSIONS.EDIT_ADMINS]: '编辑管理员',
   [ADMIN_PERMISSIONS.DELETE_ADMINS]: '删除管理员',
   [ADMIN_PERMISSIONS.ASSIGN_ADMIN_ROLES]: '分配管理员角色',
+  [ADMIN_PERMISSIONS.VIEW_LOGS]: '查看操作日志',
+  [ADMIN_PERMISSIONS.VIEW_SYSTEM]: '查看系统监控',
+  //[ADMIN_PERMISSIONS.MANAGE_SYSTEM]: '管理系统设置',
 
   // 角色管理权限
   [ROLE_PERMISSIONS.MANAGE_ROLES]: '管理角色',

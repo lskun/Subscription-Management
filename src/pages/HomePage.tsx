@@ -77,7 +77,7 @@ function HomePage() {
   // Handler for manual refresh with renewals (memoized)
   const handleRefreshWithRenewals = useCallback(async () => {
     setIsRefreshing(true)
-    console.log('🔄 开始手动刷新数据...')
+    console.log('🔄 Starting manual data refresh...')
 
     try {
       // Refresh subscription data with renewals
@@ -86,17 +86,17 @@ function HomePage() {
       // Refresh dashboard data
       await refreshDashboardData()
 
-      console.log('✅ 手动刷新完成')
+      console.log('✅ Manual data refresh completed')
 
       toast({
-        title: "数据已刷新",
-        description: "订阅数据和续费信息已更新完成"
+        title: "Data refreshed",
+        description: "Subscription data and renewal information have been updated"
       })
     } catch (error) {
-      console.error('❌ 刷新数据失败:', error)
+      console.error('❌ Failed to refresh data:', error)
       toast({
-        title: "刷新失败",
-        description: "数据刷新失败，请重试",
+        title: "Refresh failed",
+        description: "Data refresh failed, please try again",
         variant: "destructive"
       })
     } finally {
@@ -158,11 +158,11 @@ function HomePage() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p className="text-lg font-medium">
-            {authLoading ? '正在验证身份...' : '正在加载订阅数据...'}
+            {authLoading ? 'Verifying identity...' : 'Loading subscription data...'}
           </p>
           {process.env.NODE_ENV === 'development' && (
             <p className="text-sm text-muted-foreground mt-2">
-              开发模式：React StrictMode可能会导致初始化执行两次
+              Development mode: React StrictMode may cause initialization to execute twice
             </p>
           )}
         </div>
@@ -175,7 +175,7 @@ function HomePage() {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-16rem)]">
         <div className="text-center">
-          <p className="text-lg font-medium">请登录以查看您的仪表板</p>
+          <p className="text-lg font-medium">Please sign in to view your dashboard</p>
         </div>
       </div>
     )

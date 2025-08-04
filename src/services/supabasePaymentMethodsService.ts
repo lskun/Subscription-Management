@@ -56,11 +56,48 @@ export class SupabasePaymentMethodsService {
    */
   async createPaymentMethod(paymentMethodData: { value: string; label: string }): Promise<PaymentMethodOption> {
     // 获取当前用户ID
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    if (userError || !user) {
+    const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    if (!user) {
       throw new Error('用户未登录')
     }
 
+    // 检查是否存在同名的系统默认支付方式
+    const { data: existingDefault, error: checkDefaultError } = await supabase
+      .from('payment_methods')
+      .select('id, value, label, is_default')
+      .eq('value', paymentMethodData.value)
+      .eq('is_default', true)
+      .maybeSingle()
+
+    if (checkDefaultError) {
+      console.error('Error checking default payment method:', checkDefaultError)
+      throw new Error(`检查默认支付方式失败: ${checkDefaultError.message}`)
+    }
+
+    if (existingDefault) {
+      throw new Error(`无法创建支付方式：已存在同名的系统默认支付方式 "${existingDefault.label}"`)
+    }
+
+    // 检查是否存在同名的用户自定义支付方式
+    const { data: existingUser, error: checkUserError } = await supabase
+      .from('payment_methods')
+      .select('id, value, label, is_default')
+      .eq('value', paymentMethodData.value)
+      .eq('user_id', user.id)
+      .eq('is_default', false)
+      .maybeSingle()
+
+    if (checkUserError) {
+      console.error('Error checking user payment method:', checkUserError)
+      throw new Error(`检查用户支付方式失败: ${checkUserError.message}`)
+    }
+
+    if (existingUser) {
+      throw new Error(`该支付方式已存在：您已经创建了名为 "${existingUser.label}" 的支付方式`)
+    }
+
+    // 创建新支付方式
     const { data, error } = await supabase
       .from('payment_methods')
       .insert({
@@ -87,6 +124,53 @@ export class SupabasePaymentMethodsService {
    * 更新用户自定义支付方式
    */
   async updatePaymentMethod(id: string, updateData: { value?: string; label?: string }): Promise<PaymentMethodOption> {
+    // 获取当前用户ID
+    const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    if (!user) {
+      throw new Error('用户未登录')
+    }
+
+    // 如果要更新value，需要检查冲突
+    if (updateData.value) {
+      // 检查是否存在同名的系统默认支付方式
+      const { data: existingDefault, error: checkDefaultError } = await supabase
+        .from('payment_methods')
+        .select('id, value, label, is_default')
+        .eq('value', updateData.value)
+        .eq('is_default', true)
+        .maybeSingle()
+
+      if (checkDefaultError) {
+        console.error('Error checking default payment method:', checkDefaultError)
+        throw new Error(`检查默认支付方式失败: ${checkDefaultError.message}`)
+      }
+
+      if (existingDefault) {
+        throw new Error(`无法更新支付方式：已存在同名的系统默认支付方式 "${existingDefault.label}"`)
+      }
+
+      // 检查是否存在同名的其他用户自定义支付方式（排除当前支付方式）
+      const { data: existingUser, error: checkUserError } = await supabase
+        .from('payment_methods')
+        .select('id, value, label, is_default')
+        .eq('value', updateData.value)
+        .eq('user_id', user.id)
+        .eq('is_default', false)
+        .neq('id', id) // 排除当前支付方式
+        .maybeSingle()
+
+      if (checkUserError) {
+        console.error('Error checking user payment method:', checkUserError)
+        throw new Error(`检查用户支付方式失败: ${checkUserError.message}`)
+      }
+
+      if (existingUser) {
+        throw new Error(`该支付方式已存在：您已经创建了名为 "${existingUser.label}" 的支付方式`)
+      }
+    }
+
+    // 执行更新操作
     const { data, error } = await supabase
       .from('payment_methods')
       .update(updateData)
@@ -139,24 +223,48 @@ export class SupabasePaymentMethodsService {
   }
 
   /**
-   * 根据value查找支付方式
+   * 根据value查找支付方式（优先返回用户自定义支付方式，其次是系统默认支付方式）
    */
   async getPaymentMethodByValue(value: string): Promise<PaymentMethodOption | null> {
-    const { data, error } = await supabase
+    // 获取当前用户ID
+    const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    if (!user) {
+      throw new Error('用户未登录')
+    }
+
+    // 首先尝试查找用户自定义支付方式
+    const { data: userPaymentMethod, error: userError2 } = await supabase
       .from('payment_methods')
       .select('id, value, label, is_default')
       .eq('value', value)
-      .single()
+      .eq('user_id', user.id)
+      .eq('is_default', false)
+      .maybeSingle()
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return null // 记录不存在
-      }
-      console.error('Error fetching payment method by value:', error)
-      throw new Error(`根据值获取支付方式失败: ${error.message}`)
+    if (userError2) {
+      console.error('Error fetching user payment method by value:', userError2)
+      throw new Error(`根据值获取用户支付方式失败: ${userError2.message}`)
     }
 
-    return data
+    if (userPaymentMethod) {
+      return userPaymentMethod
+    }
+
+    // 如果没有找到用户自定义支付方式，查找系统默认支付方式
+    const { data: defaultPaymentMethod, error: defaultError } = await supabase
+      .from('payment_methods')
+      .select('id, value, label, is_default')
+      .eq('value', value)
+      .eq('is_default', true)
+      .maybeSingle()
+
+    if (defaultError) {
+      console.error('Error fetching default payment method by value:', defaultError)
+      throw new Error(`根据值获取默认支付方式失败: ${defaultError.message}`)
+    }
+
+    return defaultPaymentMethod
   }
 }
 

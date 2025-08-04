@@ -759,7 +759,14 @@ export function SubscriptionsPage() {
         onEdit={(id) => {
           const subscription = subscriptions.find(s => s.id === id)
           if (subscription) {
-            setEditingSubscription(subscription)
+            // Convert SubscriptionData to Subscription
+            const convertedSubscription: Subscription = {
+              ...subscription,
+              billingCycle: subscription.billingCycle as BillingCycle,
+              status: subscription.status as SubscriptionStatus,
+              renewalType: subscription.renewalType as 'auto' | 'manual'
+            }
+            setEditingSubscription(convertedSubscription)
             setDetailSubscription(null)
           }
         }}

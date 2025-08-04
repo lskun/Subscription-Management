@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs'
 import { useToast } from '../../hooks/use-toast'
 import { notificationService, UserNotification, NotificationStatistics } from '../../services/notificationService'
-import { useAuthContext } from '../../contexts/AuthContext'
+import { useAuth } from '../../contexts/AuthContext'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
@@ -39,7 +39,7 @@ interface NotificationCenterProps {
 }
 
 export function NotificationCenter({ className }: NotificationCenterProps) {
-  const { user } = useAuthContext()
+  const { user } = useAuth()
   const { toast } = useToast()
   
   const [notifications, setNotifications] = useState<UserNotification[]>([])

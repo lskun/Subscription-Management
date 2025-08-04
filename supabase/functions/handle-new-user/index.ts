@@ -1,6 +1,6 @@
 // Edge Function for handling new user registration
 // This function is called via Database Webhook when a new user is created
-// @ts-ignore - Deno runtime environment
+//@ts-ignore
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 interface WebhookPayload {
@@ -21,7 +21,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
-// @ts-ignore - Deno runtime environment
+//@ts-ignore
 Deno.serve(async (req: Request) => {
   // 处理CORS预检请求
   if (req.method === 'OPTIONS') {
@@ -32,18 +32,18 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') {
     return new Response(
       JSON.stringify({ error: 'Method not allowed' }),
-      { 
-        status: 405, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      {
+        status: 405,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       }
     )
   }
 
   try {
     // 获取环境变量
-    // @ts-ignore - Deno runtime environment
+    //@ts-ignore
     const supabaseUrl = Deno.env.get('SUPABASE_URL')
-    // @ts-ignore - Deno runtime environment
+    //@ts-ignore
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 
     if (!supabaseUrl || !serviceRoleKey) {
@@ -60,7 +60,7 @@ Deno.serve(async (req: Request) => {
 
     // 获取Webhook请求数据
     const payload: WebhookPayload = await req.json()
-    
+
     // 验证请求数据
     if (!payload.record || !payload.record.id) {
       throw new Error('Invalid webhook payload: missing user record')
@@ -78,6 +78,7 @@ Deno.serve(async (req: Request) => {
       .insert({
         id: userId,
         display_name: userEmail.split('@')[0] || '新用户',
+        email: userEmail,
         timezone: 'Asia/Shanghai',
         language: 'zh-CN'
       })
@@ -220,7 +221,7 @@ Deno.serve(async (req: Request) => {
         error: error.message,
         timestamp: new Date().toISOString(),
         // 在开发环境中包含更多调试信息
-        // @ts-ignore - Deno runtime environment
+        //@ts-ignore
         ...(Deno.env.get('ENVIRONMENT') === 'development' && {
           stack: error.stack,
           details: error

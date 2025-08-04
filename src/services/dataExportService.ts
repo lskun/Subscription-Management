@@ -45,7 +45,9 @@ export class DataExportService {
    * 验证用户权限
    */
   private async validateUserPermission(): Promise<string> {
-    const { data: { user }, error } = await supabase.auth.getUser()
+    const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    const error = null;
     
     if (error || !user) {
       throw new Error('用户未登录，无法导出数据')

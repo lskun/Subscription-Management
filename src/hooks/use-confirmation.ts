@@ -6,6 +6,7 @@ interface UseConfirmationOptions {
   confirmText?: string
   cancelText?: string
   onConfirm: () => void | Promise<void>
+  isLoading?: boolean
 }
 
 export function useConfirmation({
@@ -14,6 +15,7 @@ export function useConfirmation({
   confirmText = "Delete",
   cancelText = "Cancel",
   onConfirm,
+  isLoading = false,
 }: UseConfirmationOptions) {
   const [isOpen, setIsOpen] = useState(false)
 
@@ -38,6 +40,7 @@ export function useConfirmation({
       cancelText,
       onConfirm: handleConfirm,
       isDestructive: true,
+      isLoading,
     },
   }
 }

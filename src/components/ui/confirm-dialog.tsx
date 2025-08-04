@@ -15,8 +15,9 @@ interface ConfirmDialogProps {
   description: string
   confirmText?: string
   cancelText?: string
-  onConfirm: () => void
+  onConfirm: () => void | Promise<void>
   isDestructive?: boolean
+  isLoading?: boolean
 }
 
 export function ConfirmDialog({
@@ -28,10 +29,11 @@ export function ConfirmDialog({
   cancelText = "Cancel",
   onConfirm,
   isDestructive = false,
+  isLoading = false,
 }: ConfirmDialogProps) {
   const handleConfirm = () => {
     onConfirm()
-    onOpenChange(false)
+    // 不在这里关闭对话框，让useConfirmation处理
   }
 
   return (
@@ -39,20 +41,22 @@ export function ConfirmDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription dangerouslySetInnerHTML={{ __html: description }} />
         </DialogHeader>
         <DialogFooter>
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}
+            disabled={isLoading}
           >
             {cancelText}
           </Button>
           <Button
             variant={isDestructive ? "destructive" : "default"}
             onClick={handleConfirm}
+            disabled={isLoading}
           >
-            {confirmText}
+            {isLoading ? "Deleting..." : confirmText}
           </Button>
         </DialogFooter>
       </DialogContent>

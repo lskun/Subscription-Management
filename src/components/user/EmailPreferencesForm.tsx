@@ -8,7 +8,7 @@ import { Badge } from '../ui/badge'
 import { Separator } from '../ui/separator'
 import { useToast } from '../../hooks/use-toast'
 import { emailNotificationService, EmailPreference, EmailType } from '../../services/emailNotificationService'
-import { useAuthContext } from '../../contexts/AuthContext'
+import { useAuth } from '../../contexts/AuthContext'
 
 // 邮件类型配置
 const EMAIL_TYPE_CONFIG: Record<EmailType, {
@@ -89,7 +89,7 @@ interface EmailPreferencesFormProps {
 }
 
 export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
-  const { user } = useAuthContext()
+  const { user } = useAuth()
   const { toast } = useToast()
   
   const [preferences, setPreferences] = useState<EmailPreference[]>([])

@@ -144,29 +144,20 @@ export function LandingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-14">
             <div className="flex items-center space-x-3">
-              <div className="w-8 h-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
-                <CreditCard className="h-5 w-5 text-white" />
+              <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
+                <CreditCard className="h-6 w-6 text-white" />
               </div>
-              <span className="text-lg font-bold text-gray-900 dark:text-white">
+              <span className="text-xl font-bold text-gray-900 dark:text-white">
                 SubManager
               </span>
             </div>
             
             {user ? (
               <div className="flex items-center space-x-3">
-                {/* Badge in navigation for logged in users */}
-                <Badge className="bg-green-50 text-green-700 border-green-200 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800 hidden sm:flex">
+                {/* Badge in navigation for logged in users - 调整大小和字体 */}
+                <div className="items-center rounded-md px-3 py-2 text-sm font-semibold hidden sm:flex h-8">
                   👋 Welcome back, {user.user_metadata?.full_name || user.email?.split('@')[0]}!
-                </Badge>
-                
-                <Button 
-                  onClick={() => navigate('/dashboard')}
-                  variant="outline"
-                  size="sm"
-                  className="hidden md:flex"
-                >
-                  Dashboard
-                </Button>
+                </div>
                 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -187,6 +178,11 @@ export function LandingPage() {
                         </p>
                       </div>
                     </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => navigate('/dashboard')}>
+                      <BarChart3 className="mr-2 h-4 w-4" />
+                      <span>Dashboard</span>
+                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => navigate('/settings')}>
                       <Settings className="mr-2 h-4 w-4" />
@@ -212,10 +208,6 @@ export function LandingPage() {
               </div>
             ) : (
               <div className="flex items-center space-x-3">
-                {/* Badge in navigation for non-logged in users */}
-                <Badge className="bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800 hidden sm:flex">
-                  🎉 Completely Free
-                </Badge>
                 
                 <Button 
                   onClick={() => setIsLoginModalOpen(true)}

@@ -32,7 +32,7 @@ export const useOptimisticStore = create<OptimisticState>((set) => ({
 
 // Optimistic update functions
 export const optimisticUpdateSubscription = async (
-  id: number,
+  id: string,
   data: Partial<Subscription>,
   onSuccess: () => void,
   onError: (error: Error) => void
@@ -68,11 +68,11 @@ export const optimisticUpdateSubscription = async (
 
 export const optimisticCreateSubscription = async (
   data: Omit<Subscription, 'id'>,
-  onSuccess: (id: number) => void,
+  onSuccess: (id: string) => void,
   onError: (error: Error) => void
 ) => {
   const updateId = `create-${Date.now()}`
-  const tempId = -Date.now() // Negative ID for temporary subscription
+  const tempId = `temp-${Date.now()}` // Temporary string ID for temporary subscription
   
   // Add optimistic update
   useOptimisticStore.getState().addOptimisticUpdate({
@@ -86,7 +86,7 @@ export const optimisticCreateSubscription = async (
     // Make Supabase call
     const { data: result, error } = await supabase
       .from('subscriptions')
-      .insert({ ...data, user_id: (await supabase.auth.getUser()).data.user?.id })
+      .insert({ ...data, user_id: (await (await import('../services/userCacheService')).UserCacheService.getCurrentUser())?.id })
       .select()
       .single()
     
@@ -103,7 +103,7 @@ export const optimisticCreateSubscription = async (
 }
 
 export const optimisticDeleteSubscription = async (
-  id: number,
+  id: string,
   onSuccess: () => void,
   onError: (error: Error) => void
 ) => {

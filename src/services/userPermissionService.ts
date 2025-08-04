@@ -74,7 +74,9 @@ export class UserPermissionService {
    */
   static async getUserSubscriptionPlan(userId?: string): Promise<UserSubscriptionPlan | null> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
@@ -167,7 +169,9 @@ export class UserPermissionService {
     userId?: string
   ): Promise<QuotaUsage | null> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
@@ -249,7 +253,9 @@ export class UserPermissionService {
     userId?: string
   ): Promise<void> {
     try {
-      const targetUserId = userId || (await supabase.auth.getUser()).data.user?.id
+      const { UserCacheService } = await import('./userCacheService');
+    const user = await UserCacheService.getCurrentUser();
+    const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')

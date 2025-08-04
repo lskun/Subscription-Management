@@ -113,10 +113,13 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
 
     try {
       setSaving(true)
-      await UserProfileService.updateUserPreferences(preferences, user.id)
+      const updatedPreferences = await UserProfileService.updateUserPreferences(preferences, user.id)
+      
+      // 更新本地状态为服务器返回的最新数据
+      setPreferences(updatedPreferences)
       
       toast.success('偏好设置已保存')
-      onPreferencesUpdate?.(preferences)
+      onPreferencesUpdate?.(updatedPreferences)
     } catch (error) {
       console.error('保存偏好设置失败:', error)
       toast.error('保存偏好设置失败')

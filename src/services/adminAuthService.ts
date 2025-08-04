@@ -1,6 +1,24 @@
 import { supabase } from '../lib/supabase';
 import { User } from '@supabase/supabase-js';
 
+/**
+ * 管理员权限缓存接口
+ */
+interface AdminPermissionCache {
+  isAdmin: boolean;
+  permissions: Record<string, boolean>;
+  adminUser: AdminUser | null;
+  timestamp: number;
+}
+
+/**
+ * 缓存配置
+ */
+const CACHE_CONFIG = {
+  PERMISSION_CACHE_DURATION: 5 * 60 * 1000, // 5分钟
+  ADMIN_USER_CACHE_DURATION: 10 * 60 * 1000, // 10分钟
+} as const;
+
 export interface AdminRole {
   id: string;
   name: string;
@@ -47,24 +65,117 @@ export interface AdminOperationLog {
 }
 
 class AdminAuthService {
+  private permissionCache = new Map<string, AdminPermissionCache>();
+  private adminUserCache: { data: AdminUser | null; timestamp: number } | null = null;
+
+  /**
+   * 清除权限缓存
+   */
+  private clearPermissionCache(userId?: string): void {
+    if (userId) {
+      this.permissionCache.delete(userId);
+    } else {
+      this.permissionCache.clear();
+    }
+    this.adminUserCache = null;
+  }
+
+  /**
+   * 获取缓存的权限信息
+   */
+  private getCachedPermissions(userId: string): AdminPermissionCache | null {
+    const cached = this.permissionCache.get(userId);
+    if (!cached) return null;
+
+    const now = Date.now();
+    if (now - cached.timestamp > CACHE_CONFIG.PERMISSION_CACHE_DURATION) {
+      this.permissionCache.delete(userId);
+      return null;
+    }
+
+    return cached;
+  }
+
+  /**
+   * 设置权限缓存
+   */
+  private setCachedPermissions(userId: string, cache: Omit<AdminPermissionCache, 'timestamp'>): void {
+    this.permissionCache.set(userId, {
+      ...cache,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * 获取完整的管理员信息（包含权限）
+   */
+  private async getFullAdminInfo(userId: string): Promise<AdminPermissionCache> {
+    // 检查缓存
+    const cached = this.getCachedPermissions(userId);
+    if (cached) {
+      return cached;
+    }
+
+    try {
+      // 一次性获取管理员信息和角色权限
+      const { data: adminData, error } = await supabase
+        .from('admin_users')
+        .select(`
+          *,
+          role:admin_roles(*)
+        `)
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .single();
+
+      if (error || !adminData) {
+        const result = {
+          isAdmin: false,
+          permissions: {},
+          adminUser: null,  
+          timestamp: Date.now()
+        };
+        this.setCachedPermissions(userId, result);
+        return result;
+      }
+
+      // 解析角色权限
+      const rolePermissions = adminData.role?.permissions || {};
+      const isAdmin = true;
+
+      const result = {
+        isAdmin,
+        permissions: rolePermissions,
+        adminUser: adminData,
+        timestamp: Date.now()
+      };
+
+      this.setCachedPermissions(userId, result);
+      return result;
+    } catch (error) {
+      console.error('获取管理员信息失败:', error);
+      const result = {
+        isAdmin: false,
+        permissions: {},
+        adminUser: null,
+        timestamp: Date.now()
+      };
+      this.setCachedPermissions(userId, result);
+      return result;
+    }
+  }
+
   /**
    * 检查当前用户是否为管理员
    */
   async isAdmin(): Promise<boolean> {
     try {
-      const { data: user } = await supabase.auth.getUser();
-      if (!user.user) return false;
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      if (!user) return false;
 
-      const { data, error } = await supabase.rpc('is_admin_user', {
-        user_uuid: user.user.id
-      });
-
-      if (error) {
-        console.error('检查管理员状态失败:', error);
-        return false;
-      }
-
-      return data || false;
+      const adminInfo = await this.getFullAdminInfo(user.id);
+      return adminInfo.isAdmin;
     } catch (error) {
       console.error('检查管理员状态异常:', error);
       return false;
@@ -76,23 +187,49 @@ class AdminAuthService {
    */
   async hasPermission(permission: string): Promise<boolean> {
     try {
-      const { data: user } = await supabase.auth.getUser();
-      if (!user.user) return false;
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      if (!user) return false;
 
-      const { data, error } = await supabase.rpc('has_admin_permission', {
-        user_uuid: user.user.id,
-        permission_name: permission
-      });
-
-      if (error) {
-        console.error('检查管理员权限失败:', error);
-        return false;
+      const adminInfo = await this.getFullAdminInfo(user.id);
+      
+      // 超级管理员拥有所有权限
+      if (adminInfo.permissions.super_admin) {
+        return true;
       }
 
-      return data || false;
+      return adminInfo.permissions[permission] === true;
     } catch (error) {
       console.error('检查管理员权限异常:', error);
       return false;
+    }
+  }
+
+  /**
+   * 批量检查权限
+   */
+  async hasPermissions(permissions: string[]): Promise<Record<string, boolean>> {
+    try {
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      if (!user) {
+        return permissions.reduce((acc, perm) => ({ ...acc, [perm]: false }), {});
+      }
+
+      const adminInfo = await this.getFullAdminInfo(user.id);
+      
+      // 超级管理员拥有所有权限
+      if (adminInfo.permissions.super_admin) {
+        return permissions.reduce((acc, perm) => ({ ...acc, [perm]: true }), {});
+      }
+
+      return permissions.reduce((acc, perm) => ({
+        ...acc,
+        [perm]: adminInfo.permissions[perm] === true
+      }), {});
+    } catch (error) {
+      console.error('批量检查权限异常:', error);
+      return permissions.reduce((acc, perm) => ({ ...acc, [perm]: false }), {});
     }
   }
 
@@ -101,25 +238,12 @@ class AdminAuthService {
    */
   async getCurrentAdminUser(): Promise<AdminUser | null> {
     try {
-      const { data: user } = await supabase.auth.getUser();
-      if (!user.user) return null;
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      if (!user) return null;
 
-      const { data, error } = await supabase
-        .from('admin_users')
-        .select(`
-          *,
-          role:admin_roles(*)
-        `)
-        .eq('user_id', user.user.id)
-        .eq('is_active', true)
-        .single();
-
-      if (error) {
-        console.error('获取管理员用户信息失败:', error);
-        return null;
-      }
-
-      return data;
+      const adminInfo = await this.getFullAdminInfo(user.id);
+      return adminInfo.adminUser;
     } catch (error) {
       console.error('获取管理员用户信息异常:', error);
       return null;
@@ -127,12 +251,37 @@ class AdminAuthService {
   }
 
   /**
+   * 刷新权限缓存
+   */
+  async refreshPermissionCache(): Promise<void> {
+    try {
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      if (user) {
+        this.clearPermissionCache(user.id);
+        // 重新获取权限信息
+        await this.getFullAdminInfo(user.id);
+      }
+    } catch (error) {
+      console.error('刷新权限缓存失败:', error);
+    }
+  }
+
+  /**
+   * 清除所有缓存
+   */
+  clearAllCache(): void {
+    this.clearPermissionCache();
+  }
+
+  /**
    * 管理员登录（创建管理员会话）
    */
   async adminLogin(): Promise<{ success: boolean; session?: AdminSession; error?: string }> {
     try {
-      const { data: user } = await supabase.auth.getUser();
-      if (!user.user) {
+      const { UserCacheService } = await import('./userCacheService');
+      const user = await UserCacheService.getCurrentUser();
+      if (!user) {
         return { success: false, error: '用户未登录' };
       }
 

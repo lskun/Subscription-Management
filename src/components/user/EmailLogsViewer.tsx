@@ -6,7 +6,7 @@ import { Button } from '../ui/button'
 import { Separator } from '../ui/separator'
 import { useToast } from '../../hooks/use-toast'
 import { emailNotificationService, EmailLog, EmailStatistics } from '../../services/emailNotificationService'
-import { useAuthContext } from '../../contexts/AuthContext'
+import { useAuth } from '../../contexts/AuthContext'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
@@ -37,7 +37,7 @@ interface EmailLogsViewerProps {
 }
 
 export function EmailLogsViewer({ className }: EmailLogsViewerProps) {
-  const { user } = useAuthContext()
+  const { user } = useAuth()
   const { toast } = useToast()
   
   const [logs, setLogs] = useState<EmailLog[]>([])

@@ -22,6 +22,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/contexts/AuthContext'
+import { getUserDisplayName, getUserAvatarFallback } from '@/utils/userUtils'
+import { useUserAvatar } from '@/hooks/useUserAvatar'
 
 interface MainLayoutProps {
   children: React.ReactNode
@@ -31,6 +33,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, signOut, loading } = useAuth()
+  const { avatarUrl, isLoading: avatarLoading } = useUserAvatar()
 
   // 调试信息
   console.log('MainLayout - 用户状态:', { user: user?.email, loading })
@@ -43,30 +46,18 @@ export function MainLayout({ children }: MainLayoutProps) {
       console.error('登出失败:', error)
     }
   }
-
-  const getUserDisplayName = () => {
-    if (user?.user_metadata?.display_name) {
-      return user.user_metadata.display_name
-    }
-    if (user?.email) {
-      return user.email.split('@')[0]
-    }
-    return '用户'
-  }
-
-  const getUserAvatarFallback = () => {
-    const displayName = getUserDisplayName()
-    return displayName.charAt(0).toUpperCase()
-  }
-
+  
   return (
     <div className="flex flex-col min-h-screen bg-background">
       <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur">
         <div className="container flex h-16 items-center justify-between py-4 px-4 sm:px-6">
+          <Link to="/" className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
+              <CreditCard className="h-6 w-6 text-white" />
+            </div>
+            <span className="font-bold text-lg sm:text-xl">SubManager</span>
+          </Link>
           <div className="flex items-center gap-6 md:gap-10">
-            <Link to="/" className="flex items-center space-x-2">
-              <span className="font-bold text-lg sm:text-xl">SubManager</span>
-            </Link>
           </div>
 
           <div className="flex items-center gap-1 sm:gap-2">
@@ -106,15 +97,20 @@ export function MainLayout({ children }: MainLayoutProps) {
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="relative h-8 w-8 rounded-full">
                     <Avatar className="h-8 w-8">
-                      <AvatarImage src={user.user_metadata?.avatar_url} alt={getUserDisplayName()} />
-                      <AvatarFallback>{getUserAvatarFallback()}</AvatarFallback>
+                      <AvatarImage 
+                        src={avatarUrl || undefined} 
+                        alt={getUserDisplayName(user)} 
+                      />
+                      <AvatarFallback className="text-xs">
+                        {avatarLoading ? '...' : getUserAvatarFallback(user)}
+                      </AvatarFallback>
                     </Avatar>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-56" align="end" forceMount>
                   <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none">{getUserDisplayName()}</p>
+                      <p className="text-sm font-medium leading-none">{getUserDisplayName(user)}</p>
                       <p className="text-xs leading-none text-muted-foreground">
                         {user.email}
                       </p>

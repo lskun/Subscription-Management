@@ -17,12 +17,12 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
-import { 
+import {
   Select,
-  SelectContent, 
+  SelectContent,
   SelectItem,
-  SelectTrigger, 
-  SelectValue 
+  SelectTrigger,
+  SelectValue
 } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 
@@ -67,9 +67,6 @@ export function SettingsPage() {
     setApiKey,
     theme,
     setTheme,
-
-
-
     resetSettings,
     isLoading,
     fetchSettings
@@ -85,7 +82,7 @@ export function SettingsPage() {
   useEffect(() => {
     fetchSettings()
   }, []) // Remove dependencies to prevent infinite re-renders
-  
+
   // When the API key from the store changes, update the local state
   useEffect(() => {
     if (apiKey) {
@@ -122,7 +119,7 @@ export function SettingsPage() {
     await resetSettings()
     window.location.reload()
   }
-  
+
   const resetConfirmation = useConfirmation({
     title: "Reset All Data",
     description: "Are you sure you want to reset all data? This will permanently delete all subscriptions, payment history, and settings. This action cannot be undone.",
@@ -150,9 +147,8 @@ export function SettingsPage() {
       <Tabs defaultValue={defaultTab}>
         <div className="overflow-x-auto mb-4 sm:overflow-visible">
           <TabsList className="mb-4 min-w-max sm:min-w-0">
-            <TabsTrigger value="profile" className="text-xs sm:text-sm px-2 sm:px-3">个人资料</TabsTrigger>
-            <TabsTrigger value="preferences" className="text-xs sm:text-sm px-2 sm:px-3">偏好设置</TabsTrigger>
-            <TabsTrigger value="general" className="text-xs sm:text-sm px-2 sm:px-3">General</TabsTrigger>
+            <TabsTrigger value="profile" className="text-xs sm:text-sm px-2 sm:px-3">Profile</TabsTrigger>
+            <TabsTrigger value="preferences" className="text-xs sm:text-sm px-2 sm:px-3">Preferences</TabsTrigger>
             <TabsTrigger value="currency" className="text-xs sm:text-sm px-2 sm:px-3">Currency</TabsTrigger>
             <TabsTrigger value="options" className="text-xs sm:text-sm px-2 sm:px-3">Options</TabsTrigger>
             <TabsTrigger value="session" className="text-xs sm:text-sm px-2 sm:px-3">Session</TabsTrigger>
@@ -166,7 +162,7 @@ export function SettingsPage() {
           ) : (
             <Card>
               <CardContent className="flex items-center justify-center py-8">
-                <p className="text-muted-foreground">请先登录以管理个人资料</p>
+                <p className="text-muted-foreground">Please sign in to manage your profile</p>
               </CardContent>
             </Card>
           )}
@@ -178,44 +174,10 @@ export function SettingsPage() {
           ) : (
             <Card>
               <CardContent className="flex items-center justify-center py-8">
-                <p className="text-muted-foreground">请先登录以管理偏好设置</p>
+                <p className="text-muted-foreground">Please sign in to manage your preferences</p>
               </CardContent>
             </Card>
           )}
-        </TabsContent>
-
-        <TabsContent value="general" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>General Settings</CardTitle>
-              <CardDescription>Customize your general preferences</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div>
-                <Label htmlFor="theme">Theme Mode</Label>
-                <Select
-                  value={theme}
-                  onValueChange={async (value: ThemeType) => {
-                    // Update both stores to keep them in sync
-                    await setTheme(value)
-                    setNextTheme(value)
-                  }}
-                >
-                  <SelectTrigger id="theme">
-                    <SelectValue placeholder="Select a theme" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="light">Light</SelectItem>
-                    <SelectItem value="dark">Dark</SelectItem>
-                    <SelectItem value="system">System</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Choose between light, dark, or system preference
-                </p>
-              </div>
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="currency" className="space-y-4">
@@ -227,13 +189,13 @@ export function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="session" className="space-y-4">
-          <SessionManager 
+          <SessionManager
             showHealthCheck={true}
             showDetailedInfo={true}
             autoRefresh={false}
           />
         </TabsContent>
-   
+
         <TabsContent value="data" className="space-y-4">
           <Card>
             <CardHeader>
@@ -294,7 +256,7 @@ export function SettingsPage() {
             <CardHeader>
               <CardTitle>Reset Data</CardTitle>
               <CardDescription>
-                This will permanently delete all your subscriptions and settings. 
+                This will permanently delete all your subscriptions and settings.
                 This action cannot be undone.
               </CardDescription>
             </CardHeader>
@@ -307,13 +269,13 @@ export function SettingsPage() {
         </TabsContent>
 
       </Tabs>
-      
+
       <ImportModal
         open={isImportModalOpen}
         onOpenChange={setIsImportModalOpen}
         onImport={handleImportData}
       />
-      
+
       {/* Reset Confirmation Dialog */}
       <ConfirmDialog {...resetConfirmation.dialogProps} />
     </>

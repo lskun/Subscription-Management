@@ -112,10 +112,10 @@ interface SubscriptionState {
   // Option management
   addCategory: (category: CategoryOption) => Promise<void>
   editCategory: (oldValue: string, newCategory: CategoryOption) => Promise<void>
-  deleteCategory: (value: string) => Promise<void>
+  deleteCategory: (id: string) => Promise<void>
   addPaymentMethod: (paymentMethod: PaymentMethodOption) => Promise<void>
   editPaymentMethod: (oldValue: string, newPaymentMethod: PaymentMethodOption) => Promise<void>
-  deletePaymentMethod: (value: string) => Promise<void>
+  deletePaymentMethod: (id: string) => Promise<void>
   addSubscriptionPlan: (plan: SubscriptionPlanOption) => void
   editSubscriptionPlan: (oldValue: string, newPlan: SubscriptionPlanOption) => void
   deleteSubscriptionPlan: (value: string) => void
@@ -374,7 +374,11 @@ export const useSubscriptionStore = create<SubscriptionState>()(
         try {
           const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
           await supabaseCategoriesService.createCategory(category)
-          // Refresh categories from server
+          // Force refresh categories from server by clearing cache
+          set(state => ({
+            _lastFetch: { ...state._lastFetch, categories: 0 },
+            _fetchPromises: { ...state._fetchPromises, categories: undefined }
+          }))
           await get().fetchCategories()
         } catch (error) {
           console.error('Error adding category:', error)
@@ -386,13 +390,30 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       editCategory: async (oldValue, newCategory) => {
         try {
           const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
-          // Find category by value first
-          const existingCategory = await supabaseCategoriesService.getCategoryByValue(oldValue)
-          if (!existingCategory) {
-            throw new Error('分类不存在')
+          
+          // 如果newCategory包含ID，直接使用ID进行更新
+          if (newCategory.id) {
+            // 只更新value字段，label字段已弃用
+            await supabaseCategoriesService.updateCategory(newCategory.id, {
+              value: newCategory.value
+            })
+          } else {
+            // 兼容旧的调用方式：通过value查找ID
+            const existingCategory = await supabaseCategoriesService.getCategoryByValue(oldValue)
+            if (!existingCategory) {
+              throw new Error('分类不存在')
+            }
+            // 只更新value字段，label字段已弃用
+            await supabaseCategoriesService.updateCategory(existingCategory.id, {
+              value: newCategory.value
+            })
           }
-          await supabaseCategoriesService.updateCategory(existingCategory.id, newCategory)
-          // Refresh categories from server
+          
+          // Force refresh categories from server by clearing cache
+          set(state => ({
+            _lastFetch: { ...state._lastFetch, categories: 0 },
+            _fetchPromises: { ...state._fetchPromises, categories: undefined }
+          }))
           await get().fetchCategories()
         } catch (error) {
           console.error('Error updating category:', error)
@@ -401,16 +422,15 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       },
 
       // Delete a category option
-      deleteCategory: async (value) => {
+      deleteCategory: async (id) => {
         try {
           const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
-          // Find category by value first
-          const existingCategory = await supabaseCategoriesService.getCategoryByValue(value)
-          if (!existingCategory) {
-            throw new Error('分类不存在')
-          }
-          await supabaseCategoriesService.deleteCategory(existingCategory.id)
-          // Refresh categories from server
+          await supabaseCategoriesService.deleteCategory(id)
+          // Force refresh categories from server by clearing cache
+          set(state => ({
+            _lastFetch: { ...state._lastFetch, categories: 0 },
+            _fetchPromises: { ...state._fetchPromises, categories: undefined }
+          }))
           await get().fetchCategories()
         } catch (error) {
           console.error('Error deleting category:', error)
@@ -423,7 +443,11 @@ export const useSubscriptionStore = create<SubscriptionState>()(
         try {
           const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
           await supabasePaymentMethodsService.createPaymentMethod(paymentMethod)
-          // Refresh payment methods from server
+          // Force refresh payment methods from server by clearing cache
+          set(state => ({
+            _lastFetch: { ...state._lastFetch, paymentMethods: 0 },
+            _fetchPromises: { ...state._fetchPromises, paymentMethods: undefined }
+          }))
           await get().fetchPaymentMethods()
         } catch (error) {
           console.error('Error adding payment method:', error)
@@ -435,13 +459,30 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       editPaymentMethod: async (oldValue, newPaymentMethod) => {
         try {
           const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
-          // Find payment method by value first
-          const existingPaymentMethod = await supabasePaymentMethodsService.getPaymentMethodByValue(oldValue)
-          if (!existingPaymentMethod) {
-            throw new Error('支付方式不存在')
+          
+          // 如果newPaymentMethod包含ID，直接使用ID进行更新
+          if (newPaymentMethod.id) {
+            // 只更新value字段，label字段已弃用
+            await supabasePaymentMethodsService.updatePaymentMethod(newPaymentMethod.id, {
+              value: newPaymentMethod.value
+            })
+          } else {
+            // 兼容旧的调用方式：通过value查找ID
+            const existingPaymentMethod = await supabasePaymentMethodsService.getPaymentMethodByValue(oldValue)
+            if (!existingPaymentMethod) {
+              throw new Error('支付方式不存在')
+            }
+            // 只更新value字段，label字段已弃用
+            await supabasePaymentMethodsService.updatePaymentMethod(existingPaymentMethod.id, {
+              value: newPaymentMethod.value
+            })
           }
-          await supabasePaymentMethodsService.updatePaymentMethod(existingPaymentMethod.id, newPaymentMethod)
-          // Refresh payment methods from server
+          
+          // Force refresh payment methods from server by clearing cache
+          set(state => ({
+            _lastFetch: { ...state._lastFetch, paymentMethods: 0 },
+            _fetchPromises: { ...state._fetchPromises, paymentMethods: undefined }
+          }))
           await get().fetchPaymentMethods()
         } catch (error) {
           console.error('Error updating payment method:', error)
@@ -450,16 +491,15 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       },
 
       // Delete a payment method option
-      deletePaymentMethod: async (value) => {
+      deletePaymentMethod: async (id) => {
         try {
           const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
-          // Find payment method by value first
-          const existingPaymentMethod = await supabasePaymentMethodsService.getPaymentMethodByValue(value)
-          if (!existingPaymentMethod) {
-            throw new Error('支付方式不存在')
-          }
-          await supabasePaymentMethodsService.deletePaymentMethod(existingPaymentMethod.id)
-          // Refresh payment methods from server
+          await supabasePaymentMethodsService.deletePaymentMethod(id)
+          // Force refresh payment methods from server by clearing cache
+          set(state => ({
+            _lastFetch: { ...state._lastFetch, paymentMethods: 0 },
+            _fetchPromises: { ...state._fetchPromises, paymentMethods: undefined }
+          }))
           await get().fetchPaymentMethods()
         } catch (error) {
           console.error('Error deleting payment method:', error)

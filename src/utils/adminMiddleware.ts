@@ -28,13 +28,7 @@ export class AdminMiddleware {
    */
   static async requirePermission(permission: string): Promise<{ success: boolean; error?: string }> {
     try {
-      // 首先检查是否为管理员
-      const adminCheck = await this.requireAdmin();
-      if (!adminCheck.success) {
-        return adminCheck;
-      }
-
-      // 检查特定权限
+      // 直接检查权限，hasPermission 方法内部已经包含了管理员检查
       const hasPermission = await adminAuthService.hasPermission(permission);
       
       if (!hasPermission) {
@@ -53,14 +47,11 @@ export class AdminMiddleware {
    */
   static async requireAllPermissions(permissions: string[]): Promise<{ success: boolean; error?: string }> {
     try {
-      const adminCheck = await this.requireAdmin();
-      if (!adminCheck.success) {
-        return adminCheck;
-      }
-
+      // 使用批量权限检查
+      const permissionResults = await adminAuthService.hasPermissions(permissions);
+      
       for (const permission of permissions) {
-        const hasPermission = await adminAuthService.hasPermission(permission);
-        if (!hasPermission) {
+        if (!permissionResults[permission]) {
           return { success: false, error: `需要权限: ${permission}` };
         }
       }
@@ -77,14 +68,11 @@ export class AdminMiddleware {
    */
   static async requireAnyPermission(permissions: string[]): Promise<{ success: boolean; error?: string }> {
     try {
-      const adminCheck = await this.requireAdmin();
-      if (!adminCheck.success) {
-        return adminCheck;
-      }
-
+      // 使用批量权限检查
+      const permissionResults = await adminAuthService.hasPermissions(permissions);
+      
       for (const permission of permissions) {
-        const hasPermission = await adminAuthService.hasPermission(permission);
-        if (hasPermission) {
+        if (permissionResults[permission]) {
           return { success: true };
         }
       }
@@ -304,6 +292,22 @@ export class PermissionUtils {
  * 管理员权限验证器
  */
 export class AdminPermissionValidator {
+  /**
+   * 获取用户权限
+   */
+  static async getUserPermissions(): Promise<Record<string, boolean>> {
+    try {
+      const adminUser = await adminAuthService.getCurrentAdminUser();
+      if (!adminUser?.role?.permissions) {
+        return {};
+      }
+      return adminUser.role.permissions;
+    } catch (error) {
+      console.error('获取用户权限失败:', error);
+      return {};
+    }
+  }
+
   /**
    * 批量验证权限
    */

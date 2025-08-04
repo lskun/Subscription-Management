@@ -152,7 +152,7 @@ export function getMonthlyExpenses(
   endDate: Date,
   targetCurrency: string
 ): MonthlyExpense[] {
-  const monthlyMap = new Map<string, { amount: number; subscriptions: Set<number> }>()
+  const monthlyMap = new Map<string, { amount: number; subscriptions: Set<string> }>()
 
   subscriptions.forEach(subscription => {
     const expenseData = generateExpenseData(subscription, startDate, endDate, targetCurrency)
@@ -202,7 +202,7 @@ export function getYearlyExpenses(
   endDate: Date,
   targetCurrency: string
 ): YearlyExpense[] {
-  const yearlyMap = new Map<number, { amount: number; subscriptions: Set<number> }>()
+  const yearlyMap = new Map<number, { amount: number; subscriptions: Set<string> }>()
 
   subscriptions.forEach(subscription => {
     const expenseData = generateExpenseData(subscription, startDate, endDate, targetCurrency)
@@ -239,7 +239,7 @@ export function getCategoryExpenses(
   endDate: Date,
   targetCurrency: string
 ): CategoryExpense[] {
-  const categoryMap = new Map<string, { amount: number; subscriptions: Set<number> }>()
+  const categoryMap = new Map<string, { amount: number; subscriptions: Set<string> }>()
   let totalAmount = 0
   
   subscriptions.forEach(subscription => {

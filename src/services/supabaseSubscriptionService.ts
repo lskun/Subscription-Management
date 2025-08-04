@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { Subscription, BillingCycle, SubscriptionStatus, RenewalType } from '@/store/subscriptionStore'
+import { UserCacheService } from './userCacheService'
 
 // Supabase数据库字段类型（snake_case）
 interface SupabaseSubscription {
@@ -226,8 +227,8 @@ export class SupabaseSubscriptionService {
     )
 
     // 获取当前用户ID
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    if (userError || !user) {
+    const user = await UserCacheService.getCurrentUser()
+    if (!user) {
       throw new Error('用户未登录')
     }
 
@@ -271,8 +272,8 @@ export class SupabaseSubscriptionService {
    */
   async bulkCreateSubscriptions(subscriptionsData: Omit<FrontendSubscription, 'id' | 'lastBillingDate'>[]): Promise<FrontendSubscription[]> {
     // 获取当前用户ID
-    const { data: { user }, error: userError } = await supabase.auth.getUser()
-    if (userError || !user) {
+    const user = await UserCacheService.getCurrentUser()
+    if (!user) {
       throw new Error('用户未登录')
     }
 

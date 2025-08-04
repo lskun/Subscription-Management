@@ -61,7 +61,7 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalRecords, setTotalRecords] = useState(0)
-  
+
   const pageSize = 10
 
   // Fetch payment data when dialog opens
@@ -100,9 +100,17 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
           .gte('payment_date', startDateStr)
           .lte('payment_date', endDateStr)
           .eq('status', 'succeeded')
-        
+
         if (error) throw error
-        allPaymentDetails = transformPaymentsFromApi(data || [])
+
+        // 转换数据结构，将嵌套的 subscriptions 对象扁平化
+        const transformedData = (data || []).map(item => ({
+          ...item,
+          subscription_name: item.subscriptions?.name || 'Unknown Subscription',
+          subscription_plan: item.subscriptions?.plan || 'Unknown Plan'
+        }))
+
+        allPaymentDetails = transformPaymentsFromApi(transformedData)
 
       } else {
         // 季度或年度数据：直接从 payment-history API 获取整个时间范围的数据
@@ -121,9 +129,17 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
           .gte('payment_date', startDateStr)
           .lte('payment_date', endDateStr)
           .eq('status', 'succeeded')
-        
+
         if (error) throw error
-        allPaymentDetails = transformPaymentsFromApi(data || [])
+
+        // 转换数据结构，将嵌套的 subscriptions 对象扁平化
+        const transformedData = (data || []).map(item => ({
+          ...item,
+          subscription_name: item.subscriptions?.name || 'Unknown Subscription',
+          subscription_plan: item.subscriptions?.plan || 'Unknown Plan'
+        }))
+
+        allPaymentDetails = transformPaymentsFromApi(transformedData)
       }
 
       setPayments(allPaymentDetails)
@@ -193,7 +209,7 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
               </div>
             </CardContent>
           </Card>
-          
+
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-2">

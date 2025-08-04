@@ -1,9 +1,10 @@
 // 实时通知推送Hook
 import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { useAuthContext } from '../contexts/AuthContext'
+import { useAuth } from '../contexts/AuthContext'
 import { UserNotification } from '../services/notificationService'
 import { useToast } from './use-toast'
+import { ToastAction } from '../components/ui/toast'
 
 interface UseRealtimeNotificationsOptions {
   onNewNotification?: (notification: UserNotification) => void
@@ -12,7 +13,7 @@ interface UseRealtimeNotificationsOptions {
 }
 
 export function useRealtimeNotifications(options: UseRealtimeNotificationsOptions = {}) {
-  const { user } = useAuthContext()
+  const { user } = useAuth()
   const { toast } = useToast()
   const [isConnected, setIsConnected] = useState(false)
   const [newNotificationCount, setNewNotificationCount] = useState(0)
@@ -92,12 +93,16 @@ export function useRealtimeNotifications(options: UseRealtimeNotificationsOption
       title: notification.title,
       description: notification.message,
       variant,
-      action: notification.action_url && notification.action_label ? {
-        altText: notification.action_label,
-        onClick: () => {
-          window.location.href = notification.action_url!
-        }
-      } : undefined
+      action: notification.action_url && notification.action_label ? (
+        <ToastAction
+          altText={notification.action_label}
+          onClick={() => {
+            window.location.href = notification.action_url!
+          }}
+        >
+          {notification.action_label}
+        </ToastAction>
+      ) : undefined
     })
   }, [enableToast, toast])
 

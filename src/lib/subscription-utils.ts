@@ -133,11 +133,11 @@ export function getStatusVariant(status: SubscriptionStatus): 'default' | 'secon
  */
 export function getCategoryLabel(
   subscription: any,
-  categories: Array<{ id: number; value: string; label: string }>
+  categories: Array<{ id: string | number; value: string; label: string }>
 ): string {
   return subscription.category?.label ||
     categories.find(c => c.id === subscription.categoryId)?.label ||
-    'Unknown Category'
+    'Uncategorized'
 }
 
 /**
@@ -145,7 +145,7 @@ export function getCategoryLabel(
  */
 export function getPaymentMethodLabel(
   subscription: any,
-  paymentMethods: Array<{ id: number; value: string; label: string }>
+  paymentMethods: Array<{ id: string | number; value: string; label: string }>
 ): string {
   return subscription.paymentMethod?.label ||
     paymentMethods.find(p => p.id === subscription.paymentMethodId)?.label ||

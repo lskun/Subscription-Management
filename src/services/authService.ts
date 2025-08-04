@@ -172,9 +172,11 @@ export class AuthService {
         return { data, error }
       }
       
-      // 登录成功，清除失败记录
+      // 登录成功，清除失败记录并更新最后登录时间
       if (data?.user) {
         this.clearLoginFailures(email)
+        // 更新用户的最后登录时间
+        await this.updateLastLoginTime(data.user.id)
       }
       
       return { data, error }
@@ -255,8 +257,9 @@ export class AuthService {
    */
   static async getCurrentUser(): Promise<User | null> {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      return user
+      // 使用 UserCacheService 来避免重复请求
+      const { UserCacheService } = await import('./userCacheService')
+      return await UserCacheService.getCurrentUser()
     } catch (error) {
       console.error('获取用户信息失败:', error)
       return null
@@ -279,8 +282,32 @@ export class AuthService {
   /**
    * 监听认证状态变化
    */
+  /**
+   * 更新用户最后登录时间
+   */
+  static async updateLastLoginTime(userId: string): Promise<void> {
+    try {
+      await supabase
+        .from('user_profiles')
+        .update({ last_login_time: new Date().toISOString() })
+        .eq('id', userId)
+    } catch (error) {
+      console.error('更新最后登录时间失败:', error)
+    }
+  }
+
   static onAuthStateChange(callback: (event: string, session: Session | null) => void) {
-    return supabase.auth.onAuthStateChange(callback)
+    return supabase.auth.onAuthStateChange((event, session) => {
+      // 立即调用回调，不阻塞认证状态处理
+      callback(event, session)
+      
+      // 异步更新最后登录时间，不等待结果
+      if (event === 'SIGNED_IN' && session?.user?.id) {
+        this.updateLastLoginTime(session.user.id).catch(error => {
+          console.error('更新最后登录时间失败:', error)
+        })
+      }
+    })
   }
 
   /**

@@ -27,13 +27,13 @@ export function AdminGuard({
     : true;
   const permissionLoading = requiredPermission ? permissionCheck.isLoading : false;
 
-  // 加载中状态
+  // 显示加载状态，与主页面loading样式保持一致
   if (isLoading || permissionLoading) {
     return (
-      <div className="flex items-center justify-center p-8">
-        <div className="flex items-center space-x-2">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <span>验证管理员权限中...</span>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="spinner"></div>
+          <p className="text-lg font-medium text-gray-700">Loading Subscription Manager...</p>
         </div>
       </div>
     );

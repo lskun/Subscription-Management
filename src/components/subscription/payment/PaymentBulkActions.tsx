@@ -168,7 +168,10 @@ export function PaymentBulkActions({
         <Checkbox
           checked={isAllSelected}
           ref={(el) => {
-            if (el) el.indeterminate = isPartiallySelected
+            if (el && el.querySelector('input')) {
+              const input = el.querySelector('input') as HTMLInputElement
+              input.indeterminate = isPartiallySelected
+            }
           }}
           onCheckedChange={handleSelectAll}
         />
