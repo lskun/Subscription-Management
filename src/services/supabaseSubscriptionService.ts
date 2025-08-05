@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase'
 import { Subscription, BillingCycle, SubscriptionStatus, RenewalType } from '@/store/subscriptionStore'
-import { UserCacheService } from './userCacheService'
 
 // Supabase数据库字段类型（snake_case）
 interface SupabaseSubscription {
@@ -13,6 +12,7 @@ interface SupabaseSubscription {
   last_billing_date: string | null
   amount: number
   currency: string
+  converted_amount: number
   payment_method_id: string
   start_date: string | null
   status: SubscriptionStatus
@@ -48,7 +48,7 @@ interface CreateSubscriptionInput {
   plan: string
   billing_cycle: BillingCycle
   next_billing_date: string
-  last_billing_date?: string
+  last_billing_date?: string | null
   amount: number
   currency: string
   payment_method_id: string
@@ -104,6 +104,7 @@ export class SupabaseSubscriptionService {
       lastBillingDate: lastBillingDate,
       amount: data.amount,
       currency: data.currency,
+      convertedAmount: data.converted_amount,
       paymentMethodId: data.payment_method_id,
       startDate: data.start_date || '',
       status: data.status,
@@ -220,14 +221,9 @@ export class SupabaseSubscriptionService {
    * 创建新订阅
    */
   async createSubscription(subscriptionData: Omit<FrontendSubscription, 'id' | 'lastBillingDate'>): Promise<FrontendSubscription> {
-    // 计算上次计费日期
-    const lastBillingDate = this.calculateLastBillingDate(
-      subscriptionData.nextBillingDate,
-      subscriptionData.billingCycle
-    )
-
     // 获取当前用户ID
-    const user = await UserCacheService.getCurrentUser()
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser()
     if (!user) {
       throw new Error('用户未登录')
     }
@@ -235,9 +231,10 @@ export class SupabaseSubscriptionService {
     // 转换数据格式
     const supabaseData = this.transformToSupabase(subscriptionData)
     
+    // 对于新订阅，last_billing_date 应该为 null，因为还没有发生过计费
     const insertData: CreateSubscriptionInput = {
       ...supabaseData as CreateSubscriptionInput,
-      last_billing_date: lastBillingDate,
+      last_billing_date: null, // 新订阅的 last_billing_date 为 null
       user_id: user.id // 自动添加用户ID
     }
 
@@ -272,7 +269,8 @@ export class SupabaseSubscriptionService {
    */
   async bulkCreateSubscriptions(subscriptionsData: Omit<FrontendSubscription, 'id' | 'lastBillingDate'>[]): Promise<FrontendSubscription[]> {
     // 获取当前用户ID
-    const user = await UserCacheService.getCurrentUser()
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser()
     if (!user) {
       throw new Error('用户未登录')
     }

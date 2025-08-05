@@ -119,16 +119,16 @@ export function MainLayout({ children }: MainLayoutProps) {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => navigate('/settings?tab=profile')}>
                     <User className="mr-2 h-4 w-4" />
-                    <span>个人资料</span>
+                    <span>Profile</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => navigate('/settings?tab=preferences')}>
                     <Settings className="mr-2 h-4 w-4" />
-                    <span>偏好设置</span>
+                    <span>Preferences</span>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleSignOut}>
                     <LogOut className="mr-2 h-4 w-4" />
-                    <span>退出登录</span>
+                    <span>Sign Out</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

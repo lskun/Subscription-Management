@@ -19,11 +19,12 @@ const AuthCallbackPage = lazy(() => import("./pages/AuthCallbackPage").then(modu
 
 const AdminLoginPage = lazy(() => import("./pages/AdminLoginPage").then(module => ({ default: module.AdminLoginPage })))
 const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage").then(module => ({ default: module.AdminDashboardPage })))
+const SettingsCacheTestPage = lazy(() => import("./pages/SettingsCacheTestPage").then(module => ({ default: module.SettingsCacheTestPage })))
 
 function App() {
   return (
-    <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
-      <AuthProvider>
+    <AuthProvider>
+      <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
         <Suspense fallback={<div className="flex items-center justify-center h-64">Loading...</div>}>
           <Routes>
             {/* 公开路由 */}
@@ -70,6 +71,13 @@ function App() {
                 </MainLayout>
               </ProtectedRoute>
             } />
+            <Route path="/test/settings-cache" element={
+              <ProtectedRoute>
+                <MainLayout>
+                  <SettingsCacheTestPage />
+                </MainLayout>
+              </ProtectedRoute>
+            } />
           </Routes>
         </Suspense>
         <SessionTimeoutWarning
@@ -78,8 +86,8 @@ function App() {
           enableAutoRefresh={true}
         />
         <Toaster />
-      </AuthProvider>
-    </ThemeProvider>
+      </ThemeProvider>
+    </AuthProvider>
   )
 }
 

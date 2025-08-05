@@ -45,8 +45,8 @@ export class DataExportService {
    * 验证用户权限
    */
   private async validateUserPermission(): Promise<string> {
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     const error = null;
     
     if (error || !user) {

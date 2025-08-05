@@ -9,63 +9,106 @@ export function AuthCallbackPage() {
   const navigate = useNavigate()
   const { user, loading } = useAuth()
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
-  const [message, setMessage] = useState('正在处理登录...')
+    const [message, setMessage] = useState('Processing login...')
   const [processed, setProcessed] = useState(false)
 
-  // 处理OAuth回调
+  // 处理认证回调（包括OAuth和邮箱验证）
   useEffect(() => {
     if (processed) return
 
     const handleAuthCallback = async () => {
       try {
-        console.log('开始处理OAuth回调...')
+        console.log('开始处理认证回调...')
         console.log('当前URL:', window.location.href)
 
         setProcessed(true)
-        setMessage('正在处理认证...')
-
-        // 让Supabase自动处理URL中的认证参数
-        // Supabase会自动检测URL中的code参数并处理OAuth回调
-        console.log('等待Supabase自动处理OAuth回调...')
-
-        // 等待一段时间让Supabase处理
-        await new Promise(resolve => setTimeout(resolve, 3000))
-
-        // 检查是否有会话
-        const { data: { session }, error } = await supabase.auth.getSession()
-
-        if (error) {
-          console.error('获取会话失败:', error)
-          setStatus('error')
-          setMessage('认证失败，请重试')
-          toast.error('认证失败：' + error.message)
-
-          setTimeout(() => {
-            navigate('/', { replace: true })
-          }, 3000)
-          return
-        }
-
-        if (session?.user) {
-          console.log('OAuth登录成功:', session.user.email)
-          setStatus('success')
-          setMessage('登录成功，正在跳转...')
-          toast.success('登录成功！')
-
-          // 短暂延迟后重定向到dashboard
-          setTimeout(() => {
-            navigate('/dashboard', { replace: true })
-          }, 1500)
+        
+        // 检查URL参数来确定回调类型
+        const urlParams = new URLSearchParams(window.location.search)
+        const type = urlParams.get('type')
+        const token = urlParams.get('token')
+        
+        if (type === 'signup' && token) {
+          // 邮箱验证回调
+          setMessage('Processing email verification...')
+          console.log('检测到邮箱验证回调')
+          
+          // 让Supabase处理邮箱验证
+          await new Promise(resolve => setTimeout(resolve, 2000))
+          
+          // 检查验证结果
+          const { data: { session }, error } = await supabase.auth.getSession()
+          
+          if (error) {
+            console.error('邮箱验证失败:', error)
+            setStatus('error')
+            setMessage('Processing email verification failed, please try again')
+            toast.error('Email verification failed: ' + error.message)
+            
+            setTimeout(() => {
+              navigate('/', { replace: true })
+            }, 3000)
+            return
+          }
+          
+          if (session?.user) {
+            console.log('邮箱验证成功:', session.user.email)
+            setStatus('success')
+            setMessage('Processing email verification successful, logging in...')
+            toast.success('Email verification successful! Welcome to Subscription Manager')
+            
+            // 短暂延迟后重定向到dashboard
+            setTimeout(() => {
+              navigate('/dashboard', { replace: true })
+            }, 1500)
+          } else {
+            console.log('Email verification completed, but no session obtained, waiting for AuthContext update...')
+            setMessage('Processing login...')
+          }
         } else {
-          console.log('未获取到会话，等待AuthContext更新...')
-          setMessage('正在完成登录...')
+          // OAuth回调
+          setMessage('Processing OAuth authentication...')
+          console.log('检测到OAuth回调')
+          
+          // 让Supabase自动处理URL中的认证参数
+          await new Promise(resolve => setTimeout(resolve, 3000))
+
+          // 检查是否有会话
+          const { data: { session }, error } = await supabase.auth.getSession()
+
+          if (error) {
+            console.error('获取会话失败:', error)
+            setStatus('error')
+            setMessage('Processing OAuth authentication failed, please try again')
+            toast.error('Authentication failed: ' + error.message)
+
+            setTimeout(() => {
+              navigate('/', { replace: true })
+            }, 3000)
+            return
+          }
+
+          if (session?.user) {
+            console.log('OAuth登录成功:', session.user.email)
+            setStatus('success')
+            setMessage('Processing OAuth authentication successful, redirecting...')
+            toast.success('Login successful!')
+
+            // 短暂延迟后重定向到dashboard
+            setTimeout(() => {
+              navigate('/dashboard', { replace: true })
+            }, 1500)
+          } else {
+            console.log('OAuth authentication completed, but no session obtained, waiting for AuthContext update...')
+            setMessage('Processing login...')
+          }
         }
 
       } catch (error) {
-        console.error('处理OAuth回调失败:', error)
+        console.error('处理认证回调失败:', error)
         setStatus('error')
-        setMessage('登录过程中出现错误')
-        toast.error('登录失败，请重试')
+        setMessage('Processing authentication callback failed, please try again')
+        toast.error('Authentication failed, please try again')
 
         setTimeout(() => {
           navigate('/', { replace: true })
@@ -81,7 +124,7 @@ export function AuthCallbackPage() {
     if (!loading && user && status === 'loading') {
       console.log('检测到用户登录成功:', user.email)
       setStatus('success')
-      setMessage('登录成功，正在初始化...')
+      setMessage('Processing login successful, initializing...')
 
       // 等待一小段时间确保所有状态都已同步
       setTimeout(async () => {
@@ -90,15 +133,15 @@ export function AuthCallbackPage() {
           const { useSettingsStore } = await import('@/store/settingsStore')
           await useSettingsStore.getState().fetchSettings()
 
-          toast.success('欢迎回来！')
-          setMessage('初始化完成，正在跳转...')
+          toast.success('Welcome back!')
+          setMessage('Initialization completed, redirecting...')
 
           setTimeout(() => {
             navigate('/dashboard', { replace: true })
           }, 1000)
         } catch (error) {
-          console.warn('设置初始化失败，但继续登录流程:', error)
-          toast.success('欢迎回来！')
+          console.warn('Initialization of user settings failed, but continuing login process:', error)
+          toast.success('Welcome back!')
           navigate('/dashboard', { replace: true })
         }
       }, 500)
@@ -109,11 +152,11 @@ export function AuthCallbackPage() {
   useEffect(() => {
     const timeout = setTimeout(() => {
       if (status === 'loading') {
-        console.warn('OAuth回调处理超时')
-        console.log('当前状态:', { status, user: user?.email, loading })
+        console.warn('OAuth callback processing timeout')
+        console.log('Current state:', { status, user: user?.email, loading })
         setStatus('error')
-        setMessage('登录超时，请重试')
-        toast.error('登录超时，请重试')
+        setMessage('Processing login timeout, please try again')
+        toast.error('Processing login timeout, please try again')
 
         setTimeout(() => {
           navigate('/', { replace: true })
@@ -155,9 +198,9 @@ export function AuthCallbackPage() {
           </div>
 
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-            {status === 'loading' && '正在登录'}
-            {status === 'success' && '登录成功'}
-            {status === 'error' && '登录失败'}
+            {status === 'loading' && 'Processing login'}
+            {status === 'success' && 'Login successful'}
+            {status === 'error' && 'Login failed'}
           </h1>
 
           <p className={`text-lg ${getStatusColor()} mb-6`}>
@@ -170,7 +213,7 @@ export function AuthCallbackPage() {
                 <div className="bg-blue-600 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                请稍候，正在验证您的身份...
+                Please wait, processing your authentication...
               </p>
             </div>
           )}
@@ -178,13 +221,13 @@ export function AuthCallbackPage() {
           {status === 'error' && (
             <div className="space-y-4">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                将在几秒后自动返回首页
+                Redirecting to home page in a few seconds...
               </p>
               <button
                 onClick={() => navigate('/', { replace: true })}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
               >
-                立即返回
+                Redirect now
               </button>
             </div>
           )}
@@ -192,13 +235,13 @@ export function AuthCallbackPage() {
           {status === 'success' && (
             <div className="space-y-4">
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                正在跳转到控制面板...
+                Redirecting to dashboard...
               </p>
               <button
                 onClick={() => navigate('/dashboard', { replace: true })}
                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
               >
-                立即跳转
+                Redirect now
               </button>
             </div>
           )}

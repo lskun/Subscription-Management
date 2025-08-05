@@ -52,6 +52,7 @@ export function useDashboardData() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const hasInitialized = useRef(false)
+  const lastCurrency = useRef<string | null>(null)
 
   const fetchDashboardData = async (currency?: string) => {
     const targetCurrency = currency || userCurrency || 'CNY'
@@ -121,17 +122,25 @@ export function useDashboardData() {
     dashboardEdgeFunctionService.clearCache()
   }
 
-  // Initial data fetch
+  // Initial data fetch and currency change handling
   useEffect(() => {
-    if (!hasInitialized.current && userCurrency) {
-      fetchDashboardData()
+    // Skip if no currency available yet
+    if (!userCurrency) {
+      return
     }
-  }, [userCurrency])
 
-  // Update data when currency changes (after initial load)
-  useEffect(() => {
-    if (hasInitialized.current && userCurrency) {
-      console.log('💱 货币变化，更新Dashboard数据:', userCurrency)
+    // Initial load
+    if (!hasInitialized.current) {
+      console.log('🚀 初始化Dashboard数据:', userCurrency)
+      lastCurrency.current = userCurrency
+      fetchDashboardData()
+      return
+    }
+
+    // Currency changed after initialization
+    if (lastCurrency.current !== userCurrency) {
+      console.log('💱 货币变化，更新Dashboard数据:', { from: lastCurrency.current, to: userCurrency })
+      lastCurrency.current = userCurrency
       fetchDashboardData()
     }
   }, [userCurrency])

@@ -170,8 +170,8 @@ class AdminAuthService {
    */
   async isAdmin(): Promise<boolean> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
       if (!user) return false;
 
       const adminInfo = await this.getFullAdminInfo(user.id);
@@ -187,8 +187,8 @@ class AdminAuthService {
    */
   async hasPermission(permission: string): Promise<boolean> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
       if (!user) return false;
 
       const adminInfo = await this.getFullAdminInfo(user.id);
@@ -210,8 +210,8 @@ class AdminAuthService {
    */
   async hasPermissions(permissions: string[]): Promise<Record<string, boolean>> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
       if (!user) {
         return permissions.reduce((acc, perm) => ({ ...acc, [perm]: false }), {});
       }
@@ -238,8 +238,8 @@ class AdminAuthService {
    */
   async getCurrentAdminUser(): Promise<AdminUser | null> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
       if (!user) return null;
 
       const adminInfo = await this.getFullAdminInfo(user.id);
@@ -255,8 +255,8 @@ class AdminAuthService {
    */
   async refreshPermissionCache(): Promise<void> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
       if (user) {
         this.clearPermissionCache(user.id);
         // 重新获取权限信息
@@ -279,8 +279,8 @@ class AdminAuthService {
    */
   async adminLogin(): Promise<{ success: boolean; session?: AdminSession; error?: string }> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
       if (!user) {
         return { success: false, error: '用户未登录' };
       }

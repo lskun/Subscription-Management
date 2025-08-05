@@ -21,8 +21,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { calculateNextBillingDateFromStart } from "@/lib/subscription-utils"
-import { Subscription, useSubscriptionStore } from "@/store/subscriptionStore"
+import { calculateNextBillingDateFromStart, calculateNextBillingDateForNewSubscription } from "@/lib/subscription-utils"
+import { Subscription } from "@/store/subscriptionStore"
+import { useSubscriptionStore } from '@/store/subscriptionStore'
 
 // Form components
 import { FormField } from "./form/FormField"
@@ -45,11 +46,11 @@ export function SubscriptionForm({
   initialData,
   onSubmit
 }: SubscriptionFormProps) {
-  // Get categories, payment methods and plan options from store
+  // Get categories, payment methods and plan options from store with lazy loading
   const {
     categories,
     paymentMethods
-  } = useSubscriptionStore()
+  } = useSubscriptionStore(true)
 
   // State for form data and validation errors
   const [form, setForm] = useState<SubscriptionFormData>({
@@ -58,6 +59,7 @@ export function SubscriptionForm({
     billingCycle: "monthly",
     amount: 0,
     currency: getBaseCurrency(),
+    convertedAmount: 0,
     paymentMethodId: "",
     startDate: format(new Date(), "yyyy-MM-dd"),
     status: "active",
@@ -90,7 +92,8 @@ export function SubscriptionForm({
           plan: "",
           billingCycle: "monthly",
           amount: 0,
-          currency: "USD",
+          currency: getBaseCurrency(),
+          convertedAmount: 0,
           paymentMethodId: "",
           startDate: format(new Date(), "yyyy-MM-dd"),
           status: "active",
@@ -129,12 +132,19 @@ export function SubscriptionForm({
       return
     }
 
-    // Calculate next billing date based on start date, current date and billing cycle
-    const nextBillingDate = calculateNextBillingDateFromStart(
-      new Date(form.startDate),
-      new Date(),
-      form.billingCycle
-    )
+    // Calculate next billing date
+    // For new subscriptions: next_billing_date = start_date + one billing cycle
+    // For existing subscriptions: calculate based on current date
+    const nextBillingDate = initialData 
+      ? calculateNextBillingDateFromStart(
+          new Date(form.startDate),
+          new Date(),
+          form.billingCycle
+        )
+      : calculateNextBillingDateForNewSubscription(
+          new Date(form.startDate),
+          form.billingCycle
+        )
 
     // Submit the form with calculated next billing date
     onSubmit({

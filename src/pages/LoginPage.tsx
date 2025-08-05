@@ -60,7 +60,7 @@ export function LoginPage() {
   // 格式化锁定时间显示
   const formatLockoutTime = (ms: number): string => {
     const minutes = Math.ceil(ms / (60 * 1000))
-    return `${minutes} 分钟`
+    return `${minutes} minute`
   }
 
   const handleGoogleLogin = async () => {
@@ -70,9 +70,8 @@ export function LoginPage() {
       await signInWithGoogle()
       // Google OAuth会重定向，不需要手动导航
     } catch (error: any) {
-      console.error('Google登录失败:', error)
-      setError(error.message || 'Google登录失败，请重试')
-      toast.error('Google登录失败，请重试')
+      setError(error.message || 'Google login failed，Please retry')
+      toast.error('Google login failed，Please retry')
     } finally {
       setIsLoading(false)
     }
@@ -82,14 +81,14 @@ export function LoginPage() {
     e.preventDefault()
     
     if (!email || !password) {
-      setError('请填写邮箱和密码')
+      setError('Please enter your email and password')
       return
     }
 
     // 检查账户是否被锁定
     const remainingTime = AuthService.getRemainingLockoutTime(email)
     if (remainingTime > 0) {
-      setError(`账户已被锁定，请在 ${formatLockoutTime(remainingTime)} 后重试`)
+      setError(`Account is locked. Please try again after ${formatLockoutTime(remainingTime)}`)
       setIsLocked(true)
       setLockoutTime(remainingTime)
       return
@@ -99,10 +98,10 @@ export function LoginPage() {
       setError('')
       setIsLoading(true)
       await signInWithEmail(email, password)
-      toast.success('登录成功')
+      toast.success('Login successful')
       navigate(from, { replace: true })
     } catch (error: any) {
-      console.error('邮箱登录失败:', error)
+      console.error('Email login failed:', error)
       
       // 检查是否是账户锁定错误
       if (error.code === 'account_locked') {
@@ -110,10 +109,10 @@ export function LoginPage() {
         setIsLocked(true)
         setLockoutTime(AuthService.getRemainingLockoutTime(email))
       } else {
-        setError(error.message || '登录失败，请检查邮箱和密码')
+        setError(error.message || 'Login failed, please check your email and password')
       }
       
-      toast.error(error.message || '登录失败，请检查邮箱和密码')
+      toast.error(error.message || 'Login failed, please check your email and password')
     } finally {
       setIsLoading(false)
     }
@@ -123,17 +122,17 @@ export function LoginPage() {
     e.preventDefault()
     
     if (!email || !password || !confirmPassword) {
-      setError('请填写所有必填字段')
+      setError('Please fill in all required fields')
       return
     }
 
     if (password !== confirmPassword) {
-      setError('两次输入的密码不一致')
+      setError('Passwords do not match')
       return
     }
 
     if (password.length < 6) {
-      setError('密码长度至少为6位')
+      setError('Password must be at least 6 characters long')
       return
     }
 
@@ -141,12 +140,17 @@ export function LoginPage() {
       setError('')
       setIsLoading(true)
       await signUp(email, password)
-      toast.success('注册成功，请检查邮箱验证链接')
-      setError('注册成功！请检查您的邮箱并点击验证链接完成注册。')
+      
+      // 注册成功提示
+      toast.success('Registration successful! Welcome to the Subscription Manager')
+      
+      // 导航到主页面
+      navigate(from, { replace: true })
+      
     } catch (error: any) {
-      console.error('注册失败:', error)
-      setError(error.message || '注册失败，请重试')
-      toast.error('注册失败，请重试')
+      console.error('Registration failed:', error)
+      setError(error.message || 'Registration failed, please try again')
+      toast.error('Registration failed, please try again')
     } finally {
       setIsLoading(false)
     }
@@ -156,7 +160,7 @@ export function LoginPage() {
     e.preventDefault()
     
     if (!email) {
-      setError('请输入邮箱地址')
+      setError('Please enter your email address')
       return
     }
 
@@ -165,11 +169,11 @@ export function LoginPage() {
       setIsLoading(true)
       await resetPassword(email)
       setResetEmailSent(true)
-      toast.success('密码重置邮件已发送')
+      toast.success('Password reset email sent')
     } catch (error: any) {
-      console.error('密码重置失败:', error)
-      setError(error.message || '密码重置失败，请重试')
-      toast.error('密码重置失败，请重试')
+      console.error('Password reset failed:', error)
+      setError(error.message || 'Password reset failed, please try again')
+      toast.error('Password reset failed, please try again')
     } finally {
       setIsLoading(false)
     }
@@ -187,9 +191,9 @@ export function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl text-center">欢迎使用订阅管理器</CardTitle>
+          <CardTitle className="text-2xl text-center">Welcome to the Subscription Manager</CardTitle>
           <CardDescription className="text-center">
-            登录或注册以开始管理您的订阅
+            Login or register to start managing your subscriptions
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -211,7 +215,7 @@ export function LoginPage() {
             ) : (
               <Mail className="mr-2 h-4 w-4" />
             )}
-            使用Gmail登录
+            Sign in with Gmail
           </Button>
 
           <div className="relative mb-4">
@@ -219,21 +223,21 @@ export function LoginPage() {
               <span className="w-full border-t" />
             </div>
             <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">或</span>
+              <span className="bg-background px-2 text-muted-foreground">or</span>
             </div>
           </div>
 
           <Tabs defaultValue="login" className="w-full">
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="login">登录</TabsTrigger>
-              <TabsTrigger value="register">注册</TabsTrigger>
-              <TabsTrigger value="reset">重置密码</TabsTrigger>
+              <TabsTrigger value="login">Login</TabsTrigger>
+              <TabsTrigger value="register">Register</TabsTrigger>
+              <TabsTrigger value="reset">Reset Password</TabsTrigger>
             </TabsList>
 
             <TabsContent value="login">
               <form onSubmit={handleEmailLogin} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="email">邮箱</Label>
+                  <Label htmlFor="email">Email</Label>
                   <Input
                     id="email"
                     type="email"
@@ -244,7 +248,7 @@ export function LoginPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="password">密码</Label>
+                  <Label htmlFor="password">Password</Label>
                   <Input
                     id="password"
                     type="password"
@@ -259,10 +263,10 @@ export function LoginPage() {
                 {isLocked && lockoutTime > 0 && (
                   <Alert className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
                     <AlertDescription className="text-orange-800 dark:text-orange-200">
-                      ⚠️ 账户已被锁定，剩余时间：{formatLockoutTime(lockoutTime)}
+                      ⚠️ Account locked, remaining time: {formatLockoutTime(lockoutTime)}
                       <br />
                       <span className="text-sm text-orange-600 dark:text-orange-400">
-                        连续登录失败次数过多，请稍后重试
+                        Please try again after {formatLockoutTime(lockoutTime)}
                       </span>
                     </AlertDescription>
                   </Alert>
@@ -274,7 +278,7 @@ export function LoginPage() {
                   disabled={isLoading || isLocked}
                 >
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  {isLocked ? `账户已锁定 (${formatLockoutTime(lockoutTime)})` : '登录'}
+                  {isLocked ? `Account locked (${formatLockoutTime(lockoutTime)})` : 'Login'}
                 </Button>
               </form>
             </TabsContent>
@@ -282,7 +286,7 @@ export function LoginPage() {
             <TabsContent value="register">
               <form onSubmit={handleSignUp} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="register-email">邮箱</Label>
+                  <Label htmlFor="register-email">Email</Label>
                   <Input
                     id="register-email"
                     type="email"
@@ -293,22 +297,22 @@ export function LoginPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="register-password">密码</Label>
+                  <Label htmlFor="register-password">Password</Label>
                   <Input
                     id="register-password"
                     type="password"
-                    placeholder="至少6位字符"
+                    placeholder="At least 6 characters"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="confirm-password">确认密码</Label>
+                  <Label htmlFor="confirm-password">Confirm Password</Label>
                   <Input
                     id="confirm-password"
                     type="password"
-                    placeholder="再次输入密码"
+                    placeholder="Confirm password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
@@ -316,7 +320,7 @@ export function LoginPage() {
                 </div>
                 <Button type="submit" className="w-full" disabled={isLoading}>
                   {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  注册
+                  Register  
                 </Button>
               </form>
             </TabsContent>
@@ -325,13 +329,13 @@ export function LoginPage() {
               {resetEmailSent ? (
                 <Alert>
                   <AlertDescription>
-                    密码重置邮件已发送到您的邮箱，请检查邮件并按照说明重置密码。
+                    Password reset email sent to your email, please check your email and follow the instructions to reset your password.
                   </AlertDescription>
                 </Alert>
               ) : (
                 <form onSubmit={handleResetPassword} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="reset-email">邮箱</Label>
+                    <Label htmlFor="reset-email">Email</Label>
                     <Input
                       id="reset-email"
                       type="email"
@@ -343,7 +347,7 @@ export function LoginPage() {
                   </div>
                   <Button type="submit" className="w-full" disabled={isLoading}>
                     {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    发送重置邮件
+                    Send Reset Email
                   </Button>
                 </form>
               )}

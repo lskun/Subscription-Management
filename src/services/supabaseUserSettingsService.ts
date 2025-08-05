@@ -31,8 +31,8 @@ export class SupabaseUserSettingsService {
    */
   async getUserSettings(): Promise<UserSettings> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       // 如果用户未登录，返回默认设置而不是抛出错误
       console.warn('User not logged in, returning default settings')
@@ -84,8 +84,8 @@ export class SupabaseUserSettingsService {
    */
   async getSetting<T = any>(key: string): Promise<T | null> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }
@@ -120,8 +120,8 @@ export class SupabaseUserSettingsService {
    */
   async setSetting(key: string, value: any): Promise<void> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }
@@ -147,8 +147,8 @@ export class SupabaseUserSettingsService {
    */
   async setSettings(settings: Partial<UserSettings>): Promise<void> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }
@@ -177,8 +177,8 @@ export class SupabaseUserSettingsService {
    */
   async deleteSetting(key: string): Promise<void> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }
@@ -200,8 +200,8 @@ export class SupabaseUserSettingsService {
    */
   async resetAllSettings(): Promise<void> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }

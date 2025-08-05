@@ -56,8 +56,8 @@ export class SupabaseCategoriesService {
    */
   async createCategory(categoryData: { value: string; label?: string }): Promise<CategoryOption> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }
@@ -125,8 +125,8 @@ export class SupabaseCategoriesService {
    */
   async updateCategory(id: string, updateData: { value?: string; label?: string }): Promise<CategoryOption> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }
@@ -263,8 +263,8 @@ export class SupabaseCategoriesService {
    */
   async getCategoryByValue(value: string): Promise<CategoryOption | null> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }

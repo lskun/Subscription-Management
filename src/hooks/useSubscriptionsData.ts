@@ -117,6 +117,52 @@ export function useSubscriptionsData() {
     subscriptionsEdgeFunctionService.clearCache()
   }, [])
 
+  // 本地更新订阅数据，避免重新获取
+  const updateLocalSubscription = useCallback((updatedSubscription: SubscriptionData) => {
+    setSubscriptionsData(prevData => ({
+      ...prevData,
+      subscriptions: prevData.subscriptions.map(sub => 
+        sub.id === updatedSubscription.id ? updatedSubscription : sub
+      )
+    }))
+  }, [])
+
+  // 本地删除订阅数据，避免重新获取
+  const deleteLocalSubscription = useCallback((subscriptionId: string) => {
+    setSubscriptionsData(prevData => ({
+      ...prevData,
+      subscriptions: prevData.subscriptions.filter(sub => sub.id !== subscriptionId),
+      summary: {
+        ...prevData.summary,
+        totalSubscriptions: prevData.summary.totalSubscriptions - 1,
+        activeSubscriptions: prevData.subscriptions.find(sub => sub.id === subscriptionId)?.status === 'active' 
+          ? prevData.summary.activeSubscriptions - 1 
+          : prevData.summary.activeSubscriptions,
+        cancelledSubscriptions: prevData.subscriptions.find(sub => sub.id === subscriptionId)?.status === 'cancelled'
+          ? prevData.summary.cancelledSubscriptions - 1
+          : prevData.summary.cancelledSubscriptions
+      }
+    }))
+  }, [])
+
+  // 本地添加订阅数据，避免重新获取
+  const addLocalSubscription = useCallback((newSubscription: SubscriptionData) => {
+    setSubscriptionsData(prevData => ({
+      ...prevData,
+      subscriptions: [...prevData.subscriptions, newSubscription],
+      summary: {
+        ...prevData.summary,
+        totalSubscriptions: prevData.summary.totalSubscriptions + 1,
+        activeSubscriptions: newSubscription.status === 'active' 
+          ? prevData.summary.activeSubscriptions + 1 
+          : prevData.summary.activeSubscriptions,
+        cancelledSubscriptions: newSubscription.status === 'cancelled'
+          ? prevData.summary.cancelledSubscriptions + 1
+          : prevData.summary.cancelledSubscriptions
+      }
+    }))
+  }, [])
+
   // Initial data fetch
   useEffect(() => {
     if (!hasInitialized.current && userCurrency) {
@@ -158,6 +204,11 @@ export function useSubscriptionsData() {
     filterByStatus,
     filterByCategories,
     filterByBillingCycles,
-    clearCache
+    clearCache,
+    
+    // Local state updates
+    updateLocalSubscription,
+    deleteLocalSubscription,
+    addLocalSubscription
   }
 }

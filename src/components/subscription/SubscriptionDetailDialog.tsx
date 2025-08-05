@@ -19,7 +19,7 @@ import {
   getCategoryLabel,
   getPaymentMethodLabel
 } from "@/lib/subscription-utils"
-import { formatWithUserCurrency } from "@/utils/currency"
+import { formatCurrency } from "@/utils/currency"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useState } from "react"
 
@@ -86,6 +86,7 @@ const ContentComponent = ({
     plan,
     amount,
     currency,
+    convertedAmount,
     nextBillingDate,
     lastBillingDate,
     billingCycle,
@@ -173,7 +174,7 @@ const ContentComponent = ({
           <div className="flex items-center justify-between gap-2">
             <span className="text-sm">Amount:</span>
             <span className="font-semibold text-sm break-words text-right">
-              {formatWithUserCurrency(amount, currency)}
+              {formatCurrency(amount, currency, convertedAmount)}
             </span>
           </div>
           <div className="flex items-center justify-between gap-2">

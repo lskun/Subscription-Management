@@ -37,7 +37,7 @@ export function formatCurrencyAmount(
   const formattedAmount = formatter.format(amount)
   
   // Return formatted amount with symbol
-  return symbol + formattedAmount
+  return symbol + ' ' + formattedAmount
 }
 
 /**
@@ -99,6 +99,7 @@ export function formatWithUserCurrency(
 ): string {
   const { currency: userCurrency, showOriginalCurrency } = useSettingsStore.getState()
   
+  console.info(`Formatting ${amount} ${originalCurrency} to ${userCurrency}`)
   // Convert to user's preferred currency
   const convertedAmount = convertCurrency(amount, originalCurrency, userCurrency)
   
@@ -115,4 +116,21 @@ export function formatWithUserCurrency(
   
   // Return both the converted and original amounts
   return `${formattedConverted} (${formattedOriginal})`
+}
+
+export function formatCurrency(
+  amount: number,
+  originalCurrency: string,
+  convertedAmount: number,
+): string {
+  const { currency: userCurrency, showOriginalCurrency } = useSettingsStore.getState()
+
+  if (amount === convertedAmount) {
+    return formatCurrencyAmount(amount, originalCurrency)
+  }
+
+  if (originalCurrency === userCurrency || !showOriginalCurrency) {
+    return formatCurrencyAmount(convertedAmount, userCurrency)
+  }
+  return `${formatCurrencyAmount(convertedAmount, userCurrency)} (${formatCurrencyAmount(amount, originalCurrency)})`
 }

@@ -17,10 +17,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 
 export function ExpenseReportsPage() {
-  // 使用 useCallback 来稳定函数引用，避免不必要的重新渲染
-  const fetchCategories = useSubscriptionStore(useCallback((state) => state.fetchCategories, []))
-  const fetchSettings = useSettingsStore(useCallback((state) => state.fetchSettings, []))
-  const userCurrency = useSettingsStore(useCallback((state) => state.currency, []))
+  // 从 Zustand store 中获取需要的函数和状态
+  const subscriptionStore = useSubscriptionStore()
+  const settingsStore = useSettingsStore()
+  const { fetchCategories } = subscriptionStore
+  const { fetchSettings, currency: userCurrency } = settingsStore
   
   // Filter states
   const [selectedDateRange] = useState('Last 12 Months')
@@ -29,18 +30,19 @@ export function ExpenseReportsPage() {
     return `${currentYear - 2} - ${currentYear}`
   })
 
-  // Fetch data when component mounts - optimized to prevent duplicate requests
-  useEffect(() => {
-    const initializeData = async () => {
-      // Use Promise.all to fetch data in parallel and avoid sequential requests
-      await Promise.all([
-        fetchCategories(),
-        fetchSettings()
-      ])
-    }
+  // 使用 useCallback 来稳定 initializeData 函数引用
+  const initializeData = useCallback(async () => {
+    // 并行获取数据以避免顺序请求
+    await Promise.all([
+      fetchCategories(),
+      fetchSettings()
+    ])
+  }, [fetchCategories, fetchSettings])
 
+  // 组件挂载时获取数据
+  useEffect(() => {
     initializeData()
-  }, [fetchCategories, fetchSettings]) // Add dependencies but they are stable functions
+  }, [initializeData])
 
   // Get date range presets
   const dateRangePresets = getDateRangePresets()

@@ -36,7 +36,8 @@ export interface Subscription {
   nextBillingDate: string
   lastBillingDate: string | null
   amount: number
-  currency: string
+  currency: string,
+  convertedAmount: number
   paymentMethodId: string // Changed to UUID string for Supabase
   startDate: string
   status: SubscriptionStatus
@@ -91,7 +92,7 @@ interface SubscriptionState {
   }
 
   // CRUD operations
-  addSubscription: (subscription: Omit<Subscription, 'id' | 'lastBillingDate'>) => Promise<{ error: any | null }>
+  addSubscription: (subscription: Omit<Subscription, 'id' | 'lastBillingDate'>) => Promise<{ data: Subscription | null; error: any | null }>
   bulkAddSubscriptions: (subscriptions: Omit<Subscription, 'id' | 'lastBillingDate'>[]) => Promise<{ error: any | null }>
   updateSubscription: (id: string, subscription: Partial<Subscription>) => Promise<{ error: any | null }>
   deleteSubscription: (id: string) => Promise<{ error: any | null }>
@@ -152,7 +153,7 @@ const initialSubscriptionPlans: SubscriptionPlanOption[] = [
 ]
 
 // Create store with persistence
-export const useSubscriptionStore = create<SubscriptionState>()(
+const subscriptionStore = create<SubscriptionState>()(
   persist(
     (set, get) => ({
       subscriptions: [],
@@ -215,7 +216,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       fetchCategories: async () => {
         const state = get()
         const now = Date.now()
-        const CACHE_DURATION = 60000 // 1 minute cache for categories
+        const CACHE_DURATION = 5 * 60 * 1000 // 5 minute cache for categories
 
         // Check if we have a recent fetch or ongoing request
         if (state._lastFetch.categories && (now - state._lastFetch.categories) < CACHE_DURATION) {
@@ -255,7 +256,7 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       fetchPaymentMethods: async () => {
         const state = get()
         const now = Date.now()
-        const CACHE_DURATION = 60000 // 1 minute cache for payment methods
+        const CACHE_DURATION = 5 * 60 * 1000 // 5 minute cache for payment methods
 
         // Check if we have a recent fetch or ongoing request
         if (state._lastFetch.paymentMethods && (now - state._lastFetch.paymentMethods) < CACHE_DURATION) {
@@ -294,17 +295,22 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       // Add a new subscription
       addSubscription: async (subscription) => {
         try {
-          await supabaseSubscriptionService.createSubscription(subscription)
+          const newSubscription = await supabaseSubscriptionService.createSubscription(subscription)
           // Clear analytics cache since data has changed
           const { dashboardAnalyticsService } = await import('@/services/dashboardAnalyticsService')
           dashboardAnalyticsService.clearCache()
+          // 强制清除缓存并重新获取数据
+          set(state => ({
+            _lastFetch: { ...state._lastFetch, subscriptions: undefined },
+            _fetchPromises: { ...state._fetchPromises, subscriptions: undefined }
+          }))
           // Refetch all subscriptions to get the updated list
           await get().fetchSubscriptions()
-          return { error: null }
+          return { data: newSubscription, error: null }
         } catch (error: any) {
           console.error('Error adding subscription:', error)
           set({ error: error.message })
-          return { error }
+          return { data: null, error }
         }
       },
 
@@ -835,3 +841,28 @@ export const useSubscriptionStore = create<SubscriptionState>()(
     }
   )
 )
+
+/**
+ * 订阅管理store hook
+ * @param lazyLoad - 是否启用懒加载，当为true时会自动检查并加载categories和paymentMethods
+ */
+export const useSubscriptionStore = (lazyLoad: boolean = false) => {
+  const store = subscriptionStore()
+  
+  // 如果启用懒加载，检查并加载categories和paymentMethods
+  if (lazyLoad) {
+    const { categories, paymentMethods, fetchCategories, fetchPaymentMethods } = store
+    
+    // 懒加载categories - 利用现有的缓存机制
+    if (categories.length === 0) {
+      fetchCategories()
+    }
+    
+    // 懒加载paymentMethods - 利用现有的缓存机制
+    if (paymentMethods.length === 0) {
+      fetchPaymentMethods()
+    }
+  }
+  
+  return store
+}

@@ -56,8 +56,8 @@ export class SupabasePaymentMethodsService {
    */
   async createPaymentMethod(paymentMethodData: { value: string; label: string }): Promise<PaymentMethodOption> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }
@@ -125,8 +125,8 @@ export class SupabasePaymentMethodsService {
    */
   async updatePaymentMethod(id: string, updateData: { value?: string; label?: string }): Promise<PaymentMethodOption> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }
@@ -227,8 +227,8 @@ export class SupabasePaymentMethodsService {
    */
   async getPaymentMethodByValue(value: string): Promise<PaymentMethodOption | null> {
     // 获取当前用户ID
-    const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
     }

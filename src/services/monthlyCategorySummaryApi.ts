@@ -83,7 +83,7 @@ export async function getMonthlyCategorySummaries(
         updated_at,
         categories!inner(value, label)
       `)
-      .eq('user_id', (await (await import('./userCacheService')).UserCacheService.getCurrentUser())?.id);
+      .eq('user_id', (await (await import('@/store/settingsStore')).useSettingsStore.getState().getCurrentUser())?.id);
 
     // 添加日期范围过滤
     if (startYear && startMonth) {
@@ -163,7 +163,7 @@ export async function getMonthCategorySummary(
       `)
       .eq('year', year)
       .eq('month', month)
-      .eq('user_id', (await (await import('./userCacheService')).UserCacheService.getCurrentUser())?.id);
+      .eq('user_id', (await (await import('@/store/settingsStore')).useSettingsStore.getState().getCurrentUser())?.id);
 
     if (error) throw error;
 
@@ -211,7 +211,7 @@ export async function getTotalSummary(
     let query = supabase
       .from('monthly_category_summary')
       .select('total_amount_in_base_currency, base_currency, transactions_count, year, month')
-      .eq('user_id', (await (await import('./userCacheService')).UserCacheService.getCurrentUser())?.id);
+      .eq('user_id', (await (await import('@/store/settingsStore')).useSettingsStore.getState().getCurrentUser())?.id);
 
     // 添加日期范围过滤
     if (startYear && startMonth) {

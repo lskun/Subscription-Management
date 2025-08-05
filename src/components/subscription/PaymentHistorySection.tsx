@@ -54,10 +54,10 @@ export function PaymentHistorySection({ subscriptionId, subscriptionName }: Paym
       setAllPayments(payments)
       setPayments(payments) // 初始时显示所有支付记录
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '加载支付历史失败'
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load payment history'
       setError(errorMessage)
       toast({
-        title: "错误",
+        title: "Error",
         description: errorMessage,
         variant: "destructive",
       })
@@ -171,8 +171,8 @@ export function PaymentHistorySection({ subscriptionId, subscriptionName }: Paym
       {/* 标签页导航 */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="list">支付记录</TabsTrigger>
-          <TabsTrigger value="report">统计报告</TabsTrigger>
+          <TabsTrigger value="list">Payment History</TabsTrigger>
+          <TabsTrigger value="report">Statistics Report</TabsTrigger>
         </TabsList>
 
         {/* 支付记录列表 */}
@@ -203,7 +203,7 @@ export function PaymentHistorySection({ subscriptionId, subscriptionName }: Paym
               }}
               className="gap-2"
             >
-              {showBulkActions ? '取消批量操作' : '批量操作'}
+              {showBulkActions ? 'Cancel Bulk Actions' : 'Bulk Actions'}
             </Button>
           </div>
 

@@ -86,7 +86,7 @@ export const optimisticCreateSubscription = async (
     // Make Supabase call
     const { data: result, error } = await supabase
       .from('subscriptions')
-      .insert({ ...data, user_id: (await (await import('../services/userCacheService')).UserCacheService.getCurrentUser())?.id })
+      .insert({ ...data, user_id: (await (await import('../store/settingsStore')).useSettingsStore.getState().getCurrentUser())?.id })
       .select()
       .single()
     

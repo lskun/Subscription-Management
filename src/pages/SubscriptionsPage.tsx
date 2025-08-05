@@ -63,8 +63,26 @@ export function SubscriptionsPage() {
   const [showExportModal, setShowExportModal] = useState(false)
   const [detailSubscription, setDetailSubscription] = useState<Subscription | null>(null)
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc")
+  // 管理整个订阅区域的loading状态
+  const [operationLoading, setOperationLoadingState] = useState<{ isLoading: boolean; action?: string; message?: string }>({ isLoading: false })
 
   const { currency: userCurrency } = useSettingsStore()
+  
+  /**
+   * 设置操作loading状态
+   * @param action - 执行的操作类型
+   * @param message - loading消息
+   */
+  const setOperationLoading = (action: string, message: string) => {
+    setOperationLoadingState({ isLoading: true, action, message })
+  }
+
+  /**
+   * 清除操作loading状态
+   */
+  const clearOperationLoading = () => {
+    setOperationLoadingState({ isLoading: false })
+  }
   
   // Use the new subscriptions data hook
   const {
@@ -82,7 +100,10 @@ export function SubscriptionsPage() {
     searchSubscriptions,
     filterByStatus,
     filterByCategories,
-    filterByBillingCycles
+    filterByBillingCycles,
+    updateLocalSubscription,
+    deleteLocalSubscription,
+    addLocalSubscription
   } = useSubscriptionsData()
 
   // Still need subscription store for CRUD operations
@@ -118,7 +139,10 @@ export function SubscriptionsPage() {
 
   // Handler for adding new subscription
   const handleAddSubscription = useCallback(async (subscription: Omit<Subscription, "id" | "lastBillingDate">) => {
-    const { error } = await addSubscription(subscription)
+    // 设置loading状态
+    setOperationLoading('add', `Adding ${subscription.name}...`)
+    
+    const { data: newSubscription, error } = await addSubscription(subscription)
     
     if (error) {
       toast({
@@ -126,20 +150,46 @@ export function SubscriptionsPage() {
         description: error.message || "Failed to add subscription",
         variant: "destructive"
       })
+      clearOperationLoading()
       return
     }
     
-    // Refresh data after adding
-    await refreshData()
+    // 直接在本地状态中添加新订阅，避免重新获取所有数据
+    if (newSubscription) {
+      // 将Subscription类型转换为SubscriptionData类型
+      const subscriptionData: SubscriptionData = {
+        id: newSubscription.id,
+        name: newSubscription.name,
+        plan: newSubscription.plan || '',
+        amount: newSubscription.amount,
+        currency: newSubscription.currency,
+        convertedAmount: newSubscription.convertedAmount || newSubscription.amount,
+        billingCycle: newSubscription.billingCycle,
+        nextBillingDate: newSubscription.nextBillingDate || new Date().toISOString(),
+        lastBillingDate: newSubscription.lastBillingDate,
+        status: newSubscription.status,
+        categoryId: newSubscription.categoryId,
+        paymentMethodId: newSubscription.paymentMethodId,
+        startDate: newSubscription.startDate || new Date().toISOString(),
+        renewalType: newSubscription.renewalType || 'auto',
+        notes: newSubscription.notes || '',
+        website: newSubscription.website
+      }
+      addLocalSubscription(subscriptionData)
+    }
     
     toast({
       title: "Subscription added",
       description: `${subscription.name} has been added successfully.`
     })
-  }, [addSubscription, refreshData, toast])
+    
+    clearOperationLoading()
+  }, [addSubscription, addLocalSubscription, toast, setOperationLoading, clearOperationLoading])
 
   // Handler for updating subscription
   const handleUpdateSubscription = useCallback(async (id: string, data: Omit<Subscription, "id" | "lastBillingDate">) => {
+    setOperationLoading('edit', `Updating ${data.name}...`)
+    
     const { error } = await updateSubscription(id, data)
     
     if (error) {
@@ -148,55 +198,64 @@ export function SubscriptionsPage() {
         description: error.message || "Failed to update subscription",
         variant: "destructive"
       })
+      clearOperationLoading()
       return
     }
     
-    // Refresh data after updating
-    await refreshData()
+    // Update local state instead of refreshing
+     const updatedSubscription = subscriptions.find(sub => sub.id === id)
+     if (updatedSubscription) {
+       updateLocalSubscription({ ...updatedSubscription, ...data })
+     }
     
     setEditingSubscription(null)
     toast({
       title: "Subscription updated",
       description: `${data.name} has been updated successfully.`
     })
-  }, [updateSubscription, refreshData, toast])
+    
+    clearOperationLoading()
+  }, [updateSubscription, toast, setOperationLoading, clearOperationLoading, subscriptions, updateLocalSubscription])
 
   // State for delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   
-  // Handler for deleting subscription
-  const handleDeleteSubscription = useCallback(async () => {
-    if (!deleteTarget) return
-    
-    const { error } = await deleteSubscription(deleteTarget.id)
-    
-    if (error) {
-      toast({
-        title: "Error deleting subscription",
-        description: error.message || "Failed to delete subscription",
-        variant: "destructive"
-      })
-      return
-    }
-    
-    // Refresh data after deleting
-    await refreshData()
-    
-    toast({
-      title: "Subscription deleted",
-      description: `${deleteTarget.name} has been deleted.`,
-      variant: "destructive"
-    })
-    
-    setDeleteTarget(null)
-  }, [deleteTarget, deleteSubscription, refreshData, toast])
-  
-  // Confirmation dialog hook
+  // Confirmation dialog hook - 定义在前面避免循环依赖
   const deleteConfirmation = useConfirmation({
     title: "Delete Subscription",
     description: deleteTarget ? `Are you sure you want to delete "${deleteTarget.name}"? This action cannot be undone.` : "",
     confirmText: "Delete",
-    onConfirm: handleDeleteSubscription,
+    onConfirm: async () => {
+      if (!deleteTarget) return
+      
+      setOperationLoading('delete', `Deleting ${deleteTarget.name}...`)
+      
+      const { error } = await deleteSubscription(deleteTarget.id)
+      
+      if (error) {
+        toast({
+          title: "Error deleting subscription",
+          description: error.message || "Failed to delete subscription",
+          variant: "destructive"
+        })
+        clearOperationLoading()
+        return
+      }
+      
+      // Remove from local state instead of refreshing
+      deleteLocalSubscription(deleteTarget.id)
+      
+      toast({
+        title: "Subscription deleted",
+        description: `${deleteTarget.name} has been deleted.`,
+        variant: "destructive"
+      })
+      
+      clearOperationLoading()
+      setDeleteTarget(null)
+      // 对话框会在操作完成后自动关闭
+    },
+    isLoading: operationLoading.isLoading && operationLoading.action === 'delete',
   })
   
   // Handler to open delete confirmation
@@ -213,50 +272,100 @@ export function SubscriptionsPage() {
     const subscription = subscriptions.find(sub => sub.id === id)
     if (!subscription) return
 
-    const { error } = await updateSubscription(id, { status })
+    // 设置loading状态
+    const action = status === 'active' ? 'reactivate' : 'cancel'
+    const message = status === 'active' ? `Reactivating ${subscription.name}...` : `Cancelling ${subscription.name}...`
+    setOperationLoading(action, message)
 
-    if (error) {
+    try {
+      // 准备更新数据
+      const updateData: Partial<Subscription> = { status }
+      
+      // 如果取消订阅，将nextBillingDate设置为null，避免显示错误日期
+      if (status === 'cancelled') {
+        updateData.nextBillingDate = null
+      }
+
+      const { error } = await updateSubscription(id, updateData)
+
+      if (error) {
+        toast({
+          title: "Error updating status",
+          description: error.message || "Failed to update status",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Update local state instead of refreshing
+       const currentSubscription = subscriptions.find(sub => sub.id === id)
+       if (currentSubscription) {
+         updateLocalSubscription({ ...currentSubscription, ...updateData })
+       }
+
       toast({
-        title: "Error updating status",
-        description: error.message || "Failed to update status",
+        title: status === "active" ? "Subscription activated" : "Subscription cancelled",
+        description: `${subscription.name} has been ${status === "active" ? "activated" : "cancelled"}.`
+      })
+    } catch (error) {
+      console.error(`Error ${action}ing subscription:`, error)
+      toast({
+        title: "Error",
+        description: `Failed to ${action} subscription`,
         variant: "destructive"
       })
-      return
+    } finally {
+      clearOperationLoading()
     }
-
-    // Refresh data after status change
-    await refreshData()
-
-    toast({
-      title: status === "active" ? "Subscription activated" : "Subscription cancelled",
-      description: `${subscription.name} has been ${status === "active" ? "activated" : "cancelled"}.`
-    })
-  }, [subscriptions, updateSubscription, refreshData, toast])
+  }, [subscriptions, updateSubscription, toast, setOperationLoading, clearOperationLoading, updateLocalSubscription])
 
   // Handler for manual renewal
   const handleManualRenew = useCallback(async (id: string) => {
     const subscription = subscriptions.find(sub => sub.id === id)
     if (!subscription) return
 
-    const { error, renewalData } = await manualRenewSubscription(id)
+    // 设置loading状态
+    setOperationLoading('renew', `Renewing ${subscription.name}...`)
 
-    if (error) {
+    try {
+      const { error, renewalData } = await manualRenewSubscription(id)
+
+      if (error) {
+        toast({
+          title: "Error renewing subscription",
+          description: error,
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Update local state instead of refreshing
+       if (renewalData) {
+         const currentSubscription = subscriptions.find(sub => sub.id === id)
+         if (currentSubscription) {
+           updateLocalSubscription({
+             ...currentSubscription,
+             nextBillingDate: renewalData.newNextBilling,
+             lastBillingDate: renewalData.newLastBilling
+           })
+         }
+       }
+
       toast({
-        title: "Error renewing subscription",
-        description: error,
+        title: "Subscription renewed successfully",
+        description: `${subscription.name} has been renewed. Next billing date: ${renewalData?.newNextBilling}`
+      })
+    } catch (error) {
+      console.error('Error renewing subscription:', error)
+      toast({
+        title: "Error",
+        description: "Failed to renew subscription",
         variant: "destructive"
       })
-      return
+    } finally {
+      clearOperationLoading()
     }
-
-    // Refresh data after renewal
-    await refreshData()
-
-    toast({
-      title: "Subscription renewed successfully",
-      description: `${subscription.name} has been renewed. Next billing date: ${renewalData?.newNextBilling}`
-    })
-  }, [subscriptions, manualRenewSubscription, refreshData, toast])
+  }, [subscriptions, manualRenewSubscription, toast, setOperationLoading, clearOperationLoading, updateLocalSubscription])
 
   // Handler for toggling a category in the filter
   const toggleCategoryFilter = useCallback((categoryValue: string) => {
@@ -295,9 +404,8 @@ export function SubscriptionsPage() {
       });
     }
 
-    // Refresh data after importing
-    await refreshData();
-  }, [bulkAddSubscriptions, refreshData, toast]);
+    // No need to refresh data as subscriptionStore already handles it
+    }, [bulkAddSubscriptions, toast]);
 
   // Handler for exporting subscriptions
   const handleExportSubscriptions = () => {
@@ -694,41 +802,54 @@ export function SubscriptionsPage() {
           </div>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {sortedSubscriptions.map((subscription) => {
-            // Convert SubscriptionData to Subscription format for SubscriptionCard
-            const subscriptionForCard: Subscription = {
-              id: subscription.id,
-              name: subscription.name,
-              plan: subscription.plan,
-              billingCycle: subscription.billingCycle as BillingCycle,
-              nextBillingDate: subscription.nextBillingDate,
-              lastBillingDate: subscription.lastBillingDate,
-              amount: subscription.convertedAmount, // Use converted amount
-              currency: userCurrency || 'CNY', // Use user's currency
-              paymentMethodId: subscription.paymentMethodId,
-              startDate: subscription.startDate,
-              status: subscription.status as SubscriptionStatus,
-              categoryId: subscription.categoryId,
-              renewalType: subscription.renewalType as 'auto' | 'manual',
-              notes: subscription.notes,
-              website: subscription.website,
-              category: subscription.category,
-              paymentMethod: subscription.paymentMethod
-            }
-            
-            return (
-              <SubscriptionCard
-                key={subscription.id}
-                subscription={subscriptionForCard}
-                onEdit={() => setEditingSubscription(subscriptionForCard)}
-                onDelete={() => handleDeleteClick(subscription.id)}
-                onStatusChange={handleStatusChange}
-                onManualRenew={handleManualRenew}
-                onViewDetails={(subscription) => setDetailSubscription(subscription)}
-              />
-            )
-          })}
+        <div className="relative">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {sortedSubscriptions.map((subscription) => {
+              // Convert SubscriptionData to Subscription format for SubscriptionCard
+              const subscriptionForCard: Subscription = {
+                id: subscription.id,
+                name: subscription.name,
+                plan: subscription.plan,
+                billingCycle: subscription.billingCycle as BillingCycle,
+                nextBillingDate: subscription.nextBillingDate,
+                lastBillingDate: subscription.lastBillingDate,
+                amount: subscription.amount, // 
+                currency: subscription.currency, 
+                convertedAmount: subscription.convertedAmount,
+                paymentMethodId: subscription.paymentMethodId,
+                startDate: subscription.startDate,
+                status: subscription.status as SubscriptionStatus,
+                categoryId: subscription.categoryId,
+                renewalType: subscription.renewalType as 'auto' | 'manual',
+                notes: subscription.notes,
+                website: subscription.website,
+                category: subscription.category,
+                paymentMethod: subscription.paymentMethod
+              }
+              
+              return (
+                <SubscriptionCard
+                  key={subscription.id}
+                  subscription={subscriptionForCard}
+                  onEdit={() => setEditingSubscription(subscriptionForCard)}
+                  onDelete={() => handleDeleteClick(subscription.id)}
+                  onStatusChange={handleStatusChange}
+                  onManualRenew={handleManualRenew}
+                  onViewDetails={(subscription) => setDetailSubscription(subscription)}
+                />
+              )
+            })}
+          </div>
+          
+          {/* 操作loading覆盖层 - 使用简洁样式 */}
+          {operationLoading.isLoading && (
+            <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-lg font-medium">{operationLoading.message || '正在处理...'}</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

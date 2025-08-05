@@ -3,7 +3,7 @@ import { User, Session } from '@supabase/supabase-js'
 import { AuthService } from '@/services/authService'
 import { SessionService, SessionState } from '@/services/sessionService'
 import { UserInitializationService } from '@/services/userInitializationService'
-import { UserCacheService } from '@/services/userCacheService'
+import { useSettingsStore } from '@/store/settingsStore'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 
@@ -17,7 +17,7 @@ interface AuthContextType {
   timeUntilExpiry: number | null
   signInWithGoogle: () => Promise<void>
   signInWithEmail: (email: string, password: string) => Promise<void>
-  signUp: (email: string, password: string, metadata?: Record<string, any>) => Promise<void>
+  signUp: (email: string, password: string, metadata?: Record<string, any>) => Promise<{ data: any; error: any } | undefined>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<void>
   updatePassword: (password: string) => Promise<void>
@@ -100,7 +100,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUser(session?.user ?? null)
         
         // 更新用户缓存
-        UserCacheService.updateCache(session?.user ?? null)
+        useSettingsStore.getState().updateUserCache(session?.user ?? null)
         
         // 处理特定事件
         switch (event) {
@@ -114,19 +114,53 @@ export function AuthProvider({ children }: AuthProviderProps) {
               // 添加到正在初始化的用户集合
               setInitializingUsers(prev => new Set(prev).add(session.user.id))
               
-              // 添加小延迟确保认证状态完全同步
+              // 延迟初始化检查，让缓存有时间建立
               setTimeout(async () => {
                 try {
+                  // 首先预热缓存 - 更新用户缓存到 settingsStore
+                  const store = useSettingsStore.getState()
+                  store.updateUserCache(session.user)
+                  
+                  // 预设用户配置缓存，避免后续查询数据库
+                  const userProfileCacheKey = store.generateCacheKey('user_profile', session.user.id)
+                  console.log('🔍 [DEBUG] AuthContext: 预设用户配置缓存', { userId: session.user.id, cacheKey: userProfileCacheKey })
+                  
+                  // 设置完整的用户配置缓存，匹配 user_profiles 表结构
+                  const userProfileCache = {
+                    id: session.user.id,
+                    display_name: session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || '用户',
+                    avatar_url: session.user.user_metadata?.avatar_url || null,
+                    timezone: session.user.user_metadata?.timezone || 'Asia/Shanghai',
+                    language: session.user.user_metadata?.language || 'en-US',
+                    created_at: session.user.created_at,
+                    updated_at: new Date().toISOString(),
+                    last_login_time: new Date().toISOString(),
+                    is_blocked: false,
+                    email: session.user.email
+                  }
+                  store.setGlobalCache(userProfileCacheKey, userProfileCache)
+                  console.log('🔍 [DEBUG] AuthContext: 用户配置缓存已设置', { userId: session.user.id, cacheData: userProfileCache })
+                  
+                  // 延迟更长时间，让页面组件有机会建立缓存
+                  await new Promise(resolve => setTimeout(resolve, 1000))
+                  
+                  console.log('🔍 [DEBUG] AuthContext: 检查用户初始化状态前', { userId: session.user.id })
+                  
+                  // 检查缓存是否已设置
+                  const cacheResult = store.getFromGlobalCache(userProfileCacheKey)
+                  console.log('🔍 [DEBUG] AuthContext: 缓存检查结果', { cacheKey: userProfileCacheKey, hasCache: !!cacheResult.data })
+                  
                   const isInitialized = await UserInitializationService.isUserInitialized(session.user.id)
+                  console.log('🔍 [DEBUG] AuthContext: 检查用户初始化状态后', { userId: session.user.id, isInitialized })
                   if (!isInitialized) {
                     console.log('检测到新用户，开始初始化...')
                     const initResult = await UserInitializationService.initializeNewUser(session.user)
                     if (initResult.success) {
                       console.log('新用户初始化成功')
-                      toast.success('欢迎使用订阅管理器！')
+                      toast.success('Welcome to Subscription Manager!')
                     } else {
                       console.error('新用户初始化失败:', initResult.error)
-                      toast.warning('登录成功，但初始化过程中出现问题')
+                      toast.warning('Login successful, but initialization failed')
                     }
                   }
                 } catch (error) {
@@ -139,7 +173,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                     return newSet
                   })
                 }
-              }, 500)
+              }, 1500) // 增加延迟时间
             }
             break
           case 'SIGNED_OUT':
@@ -193,14 +227,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // 监听会话超时和过期事件
     const handleSessionTimeout = () => {
-      toast.error('会话已超时，请重新登录')
+      toast.error('Session timed out, please log in again')
       // 可以在这里添加重定向到登录页面的逻辑
     }
 
     const handleSessionExpired = (event: CustomEvent) => {
       const { reason } = event.detail
       if (reason === 'token_refresh_failed') {
-        toast.error('会话已过期，请重新登录')
+        toast.error('Session expired, please log in again')
       }
       // 可以在这里添加重定向到登录页面的逻辑
     }
@@ -260,31 +294,48 @@ export function AuthProvider({ children }: AuthProviderProps) {
         throw error
       }
       
-      // 如果注册成功且有用户数据，调用初始化函数（防止重复初始化）
-      if (data?.user && !initializingUsers.has(data.user.id)) {
-        setInitializingUsers(prev => new Set(prev).add(data.user.id))
+      // 如果注册成功且有用户数据和会话，说明用户已自动登录
+      if (data?.user && data?.session) {
+        console.log('注册成功，用户已自动登录:', data.user.email)
         
-        try {
-          const initResult = await UserInitializationService.initializeNewUser(data.user)
+        // 立即更新认证状态
+        setSession(data.session)
+        setUser(data.user)
+        
+        // 启动会话管理
+        SessionService.startSessionManagement()
+        
+        // 防止重复初始化
+        if (!initializingUsers.has(data.user.id)) {
+          setInitializingUsers(prev => new Set(prev).add(data.user.id))
           
-          if (initResult.success) {
-            console.log('用户初始化成功:', initResult.message)
-            toast.success('注册成功！欢迎使用订阅管理器')
-          } else {
-            console.error('用户初始化失败:', initResult.error)
-            toast.warning('注册成功，但初始化过程中出现问题，请联系客服')
+          try {
+            const initResult = await UserInitializationService.initializeNewUser(data.user)
+            
+            if (initResult.success) {
+              console.log('用户初始化成功:', initResult.message)
+            } else {
+              console.error('用户初始化失败:', initResult.error)
+              toast.warning('Registration successful, but initialization failed')
+            }
+          } catch (initError) {
+            console.error('用户初始化异常:', initError)
+            toast.warning('Registration successful, but initialization failed')
+          } finally {
+            setInitializingUsers(prev => {
+              const newSet = new Set(prev)
+              newSet.delete(data.user.id)
+              return newSet
+            })
           }
-        } catch (initError) {
-          console.error('用户初始化异常:', initError)
-          toast.warning('注册成功，但初始化过程中出现问题，请联系客服')
-        } finally {
-          setInitializingUsers(prev => {
-            const newSet = new Set(prev)
-            newSet.delete(data.user.id)
-            return newSet
-          })
         }
+      } else if (data?.user && !data?.session) {
+        // 如果只有用户数据但没有会话，说明需要邮箱验证
+        console.log('注册成功，需要邮箱验证:', data.user.email)
       }
+      
+      // 返回结果给调用者
+      return { data, error }
     } catch (error) {
       console.error('用户注册失败:', error)
       throw error
@@ -297,7 +348,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       setLoading(true)
       // 清除用户缓存
-      UserCacheService.clearCache()
+      useSettingsStore.getState().clearUserCache()
       // 使用SessionService的安全登出
       await SessionService.signOut('user_initiated')
     } catch (error) {

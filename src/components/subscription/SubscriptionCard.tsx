@@ -7,7 +7,8 @@ import {
   Ban,
   Tag,
   RotateCcw,
-  Hand
+  Hand,
+  Loader2
 } from "lucide-react"
 
 import { Subscription, useSubscriptionStore } from "@/store/subscriptionStore"
@@ -19,7 +20,7 @@ import {
   getCategoryLabel,
   getPaymentMethodLabel
 } from "@/lib/subscription-utils"
-import { formatWithUserCurrency } from "@/utils/currency"
+import { formatCurrency } from "@/utils/currency"
 
 import {
   Card,
@@ -42,6 +43,8 @@ interface SubscriptionCardProps {
   onStatusChange: (id: string, status: 'active' | 'cancelled') => void
   onManualRenew?: (id: string) => void
   onViewDetails?: (subscription: Subscription) => void
+  isLoading?: boolean
+  loadingAction?: 'edit' | 'delete' | 'cancel' | 'reactivate' | 'renew'
 }
 
 export function SubscriptionCard({
@@ -50,7 +53,9 @@ export function SubscriptionCard({
   onDelete,
   onStatusChange,
   onManualRenew,
-  onViewDetails
+  onViewDetails,
+  isLoading = false,
+  loadingAction
 }: SubscriptionCardProps) {
   const {
     id,
@@ -58,6 +63,7 @@ export function SubscriptionCard({
     plan,
     amount,
     currency,
+    convertedAmount,
     nextBillingDate,
     billingCycle,
     paymentMethod,
@@ -101,9 +107,25 @@ export function SubscriptionCard({
 
   return (
     <Card
-      className="w-full cursor-pointer hover:shadow-md transition-shadow"
-      onClick={() => onViewDetails?.(subscription)}
+      className="w-full cursor-pointer hover:shadow-md transition-shadow relative"
+      onClick={() => !isLoading && onViewDetails?.(subscription)}
     >
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm z-10 flex items-center justify-center rounded-lg">
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="h-6 w-6 animate-spin" />
+            <span className="text-sm text-muted-foreground">
+              {loadingAction === 'delete' && 'Deleting...'}
+              {loadingAction === 'edit' && 'Updating...'}
+              {loadingAction === 'cancel' && 'Cancelling...'}
+              {loadingAction === 'reactivate' && 'Reactivating...'}
+              {loadingAction === 'renew' && 'Renewing...'}
+              {!loadingAction && 'Loading...'}
+            </span>
+          </div>
+        </div>
+      )}
       <CardHeader className="pb-2 flex flex-row items-start justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -121,32 +143,42 @@ export function SubscriptionCard({
               size="icon"
               className="h-8 w-8"
               onClick={(e) => e.stopPropagation()}
+              disabled={isLoading}
             >
               <MoreVertical className="h-4 w-4" />
               <span className="sr-only">Open menu</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={(e) => {
-              e.stopPropagation()
-              onEdit(id)
-            }}>
+            <DropdownMenuItem 
+              onClick={(e) => {
+                e.stopPropagation()
+                onEdit(id)
+              }}
+              disabled={isLoading}
+            >
               <Pencil className="mr-2 h-4 w-4" />
               Edit
             </DropdownMenuItem>
             {status === 'active' ? (
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                onStatusChange(id, 'cancelled')
-              }}>
+              <DropdownMenuItem 
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onStatusChange(id, 'cancelled')
+                }}
+                disabled={isLoading}
+              >
                 <Ban className="mr-2 h-4 w-4" />
                 Cancel
               </DropdownMenuItem>
             ) : (
-              <DropdownMenuItem onClick={(e) => {
-                e.stopPropagation()
-                onStatusChange(id, 'active')
-              }}>
+              <DropdownMenuItem 
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onStatusChange(id, 'active')
+                }}
+                disabled={isLoading}
+              >
                 <Calendar className="mr-2 h-4 w-4" />
                 Reactivate
               </DropdownMenuItem>
@@ -157,6 +189,7 @@ export function SubscriptionCard({
                 onDelete(id)
               }}
               className="text-destructive focus:text-destructive"
+              disabled={isLoading}
             >
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
@@ -167,7 +200,7 @@ export function SubscriptionCard({
       
       <CardContent className="flex-1 flex flex-col">
         <div className="flex justify-between items-center mb-2">
-          <div className="font-medium">{formatWithUserCurrency(amount, currency)}</div>
+          <div className="font-medium">{formatCurrency(amount, currency, convertedAmount)}</div>
           <Badge variant={getBillingCycleBadgeVariant()}>
             {getBillingCycleLabel(billingCycle)}
           </Badge>

@@ -5,10 +5,9 @@ import type {
   UserSettings, 
   UserPreferences 
 } from '@/types/userProfile'
-import { GlobalCacheService } from './globalCacheService'
-import { UserCacheService } from './userCacheService'
+import { useSettingsStore } from '@/store/settingsStore'
 
-// CacheManager 已迁移到 GlobalCacheService
+// CacheManager 已迁移到 settingsStore
 
 /**
  * 用户配置管理服务
@@ -19,28 +18,30 @@ export class UserProfileService {
    */
   static async getUserProfile(userId?: string): Promise<UserProfile | null> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
-    const targetUserId = userId || user?.id
+      const user = await useSettingsStore.getState().getCurrentUser();
+      const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
       }
 
       // 生成缓存键
-      const cacheKey = GlobalCacheService.generateCacheKey('userProfile', targetUserId)
+      const cacheKey = useSettingsStore.getState().generateCacheKey('userProfile', targetUserId)
       
       // 检查缓存
-      const cached = GlobalCacheService.get<UserProfile>(cacheKey)
+      const cached = useSettingsStore.getState().getFromGlobalCache<UserProfile>(cacheKey)
       
       if (cached.data) {
+        console.log('🎯 使用缓存的用户配置数据:', targetUserId)
         return cached.data
       }
       
       if (cached.promise) {
-        console.log('等待现有的用户配置获取请求')
+        console.log('⏳ 等待现有的用户配置获取请求:', targetUserId)
         return cached.promise
       }
+
+      console.log('🔄 发起新的用户配置请求:', targetUserId)
 
       // 创建新的获取Promise
       const fetchPromise = (async () => {
@@ -53,26 +54,28 @@ export class UserProfileService {
 
           if (error) {
             if (error.code === 'PGRST116') {
+              console.log('📝 用户配置不存在，创建默认配置:', targetUserId)
               // 用户配置不存在，创建默认配置
               const profile = await this.createDefaultProfile(targetUserId)
               // 设置缓存
-              GlobalCacheService.set(cacheKey, profile)
+              useSettingsStore.getState().setGlobalCache(cacheKey, profile)
               return profile
             }
             throw error
           }
 
+          console.log('✅ 用户配置获取成功，设置缓存:', targetUserId)
           // 设置缓存
-          GlobalCacheService.set(cacheKey, data)
+          useSettingsStore.getState().setGlobalCache(cacheKey, data)
           return data
         } finally {
           // 请求完成后清除Promise引用
-          GlobalCacheService.clearPromise(cacheKey)
+          useSettingsStore.getState().clearGlobalCachePromise(cacheKey)
         }
       })();
 
       // 存储Promise以便去重
-      GlobalCacheService.setPromise(cacheKey, fetchPromise)
+      useSettingsStore.getState().setGlobalCachePromise(cacheKey, fetchPromise)
       return fetchPromise
     } catch (error) {
       console.error('获取用户配置失败:', error)
@@ -85,8 +88,7 @@ export class UserProfileService {
    */
   static async createDefaultProfile(userId: string): Promise<UserProfile> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser()
+      const user = await useSettingsStore.getState().getCurrentUser()
       const userEmail = user?.email || ''
       const displayName = userEmail.split('@')[0] || '用户'
 
@@ -123,8 +125,7 @@ export class UserProfileService {
     userId?: string
   ): Promise<UserProfile> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+      const user = await useSettingsStore.getState().getCurrentUser();
     const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -149,8 +150,8 @@ export class UserProfileService {
       }
 
       // 清除缓存，确保下次获取时能获取最新数据
-      const cacheKey = GlobalCacheService.generateCacheKey('userProfile', targetUserId)
-      GlobalCacheService.clear(cacheKey)
+      const cacheKey = useSettingsStore.getState().generateCacheKey('userProfile', targetUserId)
+      useSettingsStore.getState().clearGlobalCache(cacheKey)
       
       return data as UserProfile
     } catch (error) {
@@ -164,8 +165,7 @@ export class UserProfileService {
    */
   static async uploadAvatar(file: File, userId?: string): Promise<string> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const user = await useSettingsStore.getState().getCurrentUser();
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -233,7 +233,7 @@ export class UserProfileService {
       
       // 只有在没有提供 userId 时才调用 UserCacheService
       if (!targetUserId) {
-        const user = await UserCacheService.getCurrentUser()
+        const user = await useSettingsStore.getState().getCurrentUser()
         if (!user) {
           throw new Error('用户未登录')
         }
@@ -263,30 +263,66 @@ export class UserProfileService {
    */
   static async getUserAvatarUrl(userId?: string): Promise<string | null> {
     try {
-      // 使用 UserCacheService 获取用户信息
-      const user = await UserCacheService.getCurrentUser()
+      // 使用 settingsStore 获取用户信息
+      const user = await useSettingsStore.getState().getCurrentUser()
       if (!user) {
         return null
       }
 
       const targetUserId = userId || user.id
 
-      // 获取用户配置中的头像
-      const profile = await this.getUserProfile(targetUserId)
+      // 生成头像缓存键
+      const avatarCacheKey = useSettingsStore.getState().generateCacheKey('userAvatar', targetUserId)
       
-      // 如果配置中有头像且不是 Google 头像，直接返回
-      if (profile?.avatar_url && !profile.avatar_url.includes('googleusercontent.com')) {
-        return profile.avatar_url
+      // 检查头像缓存
+      const avatarCached = useSettingsStore.getState().getFromGlobalCache<string | null>(avatarCacheKey)
+      
+      if (avatarCached.data !== null) {
+        console.log('🎯 使用缓存的用户头像:', targetUserId)
+        return avatarCached.data
+      }
+      
+      if (avatarCached.promise) {
+        console.log('⏳ 等待现有的用户头像获取请求:', targetUserId)
+        return avatarCached.promise
       }
 
-      // 如果用户元数据中有 Google 头像，直接返回
-      const googleAvatarUrl = user.user_metadata?.avatar_url
-      if (googleAvatarUrl && googleAvatarUrl.includes('googleusercontent.com')) {
-        return await this.getGoogleAvatarUrl(googleAvatarUrl, targetUserId)
-      }
+      console.log('🔄 发起新的用户头像请求:', targetUserId)
 
-      // 返回配置中的头像或 null
-      return profile?.avatar_url || null
+      // 创建新的获取Promise
+      const fetchAvatarPromise = (async () => {
+        try {
+          // 获取用户配置中的头像
+          const profile = await this.getUserProfile(targetUserId)
+          
+          // 如果配置中有头像且不是 Google 头像，直接返回
+          if (profile?.avatar_url && !profile.avatar_url.includes('googleusercontent.com')) {
+            const avatarUrl = profile.avatar_url
+            useSettingsStore.getState().setGlobalCache(avatarCacheKey, avatarUrl)
+            return avatarUrl
+          }
+
+          // 如果用户元数据中有 Google 头像，处理 Google 头像
+          const googleAvatarUrl = user.user_metadata?.avatar_url
+          if (googleAvatarUrl && googleAvatarUrl.includes('googleusercontent.com')) {
+            const processedUrl = await this.getGoogleAvatarUrl(googleAvatarUrl, targetUserId)
+            useSettingsStore.getState().setGlobalCache(avatarCacheKey, processedUrl)
+            return processedUrl
+          }
+
+          // 返回配置中的头像或 null
+          const avatarUrl = profile?.avatar_url || null
+          useSettingsStore.getState().setGlobalCache(avatarCacheKey, avatarUrl)
+          return avatarUrl
+        } finally {
+          // 请求完成后清除Promise引用
+          useSettingsStore.getState().clearGlobalCachePromise(avatarCacheKey)
+        }
+      })();
+
+      // 存储Promise以便去重
+      useSettingsStore.getState().setGlobalCachePromise(avatarCacheKey, fetchAvatarPromise)
+      return fetchAvatarPromise
     } catch (error) {
       console.warn('获取用户头像失败:', error)
       return null
@@ -298,8 +334,7 @@ export class UserProfileService {
    */
   static async deleteAvatar(userId?: string): Promise<void> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const user = await useSettingsStore.getState().getCurrentUser();
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -336,37 +371,71 @@ export class UserProfileService {
   }
 
   /**
-   * 获取用户设置
+   * 获取用户设置（带缓存）
    */
   static async getUserSetting(
     settingKey: string,
     userId?: string
   ): Promise<any> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const user = await useSettingsStore.getState().getCurrentUser();
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('用户未登录')
       }
 
-      const { data, error } = await supabase
-        .from('user_settings')
-        .select('setting_value')
-        .eq('user_id', targetUserId)
-        .eq('setting_key', settingKey)
-        .single()
-
-      if (error) {
-        if (error.code === 'PGRST116') {
-          // 设置不存在，返回null
-          return null
-        }
-        throw error
+      // 生成缓存键
+      const cacheKey = useSettingsStore.getState().generateCacheKey('userSetting', `${targetUserId}_${settingKey}`)
+      
+      // 检查缓存
+      const cached = useSettingsStore.getState().getFromGlobalCache<any>(cacheKey)
+      
+      if (cached.data !== null) {
+        console.log('🎯 使用缓存的用户设置数据:', settingKey, targetUserId)
+        return cached.data
+      }
+      
+      if (cached.promise) {
+        console.log('⏳ 等待现有的用户设置获取请求:', settingKey, targetUserId)
+        return cached.promise
       }
 
-      return data.setting_value
+      console.log('🔄 发起新的用户设置请求:', settingKey, targetUserId)
+
+      // 创建新的获取Promise
+      const fetchPromise = (async () => {
+        try {
+          const { data, error } = await supabase
+            .from('user_settings')
+            .select('setting_value')
+            .eq('user_id', targetUserId)
+            .eq('setting_key', settingKey)
+            .single()
+
+          if (error) {
+            if (error.code === 'PGRST116') {
+              // 设置不存在，返回null并缓存
+              console.log('📝 用户设置不存在，缓存 null 值:', settingKey, targetUserId)
+              useSettingsStore.getState().setGlobalCache(cacheKey, null)
+              return null
+            }
+            throw error
+          }
+
+          console.log('✅ 用户设置获取成功，设置缓存:', settingKey, targetUserId)
+          // 设置缓存
+          useSettingsStore.getState().setGlobalCache(cacheKey, data.setting_value)
+          return data.setting_value
+        } finally {
+          // 请求完成后清除Promise引用
+          useSettingsStore.getState().clearGlobalCachePromise(cacheKey)
+        }
+      })();
+
+      // 存储Promise以便去重
+      useSettingsStore.getState().setGlobalCachePromise(cacheKey, fetchPromise)
+      return fetchPromise
     } catch (error) {
       console.error('获取用户设置失败:', error)
       throw error
@@ -374,7 +443,7 @@ export class UserProfileService {
   }
 
   /**
-   * 设置用户设置
+   * 设置用户设置（自动清除缓存）
    */
   static async setUserSetting(
     settingKey: string,
@@ -382,8 +451,7 @@ export class UserProfileService {
     userId?: string
   ): Promise<void> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const user = await useSettingsStore.getState().getCurrentUser();
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -412,8 +480,7 @@ export class UserProfileService {
    */
   static async getUserPreferences(userId?: string): Promise<UserPreferences> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const user = await useSettingsStore.getState().getCurrentUser();
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -421,10 +488,10 @@ export class UserProfileService {
       }
 
       // 生成缓存键
-      const cacheKey = GlobalCacheService.generateCacheKey('userPreferences', targetUserId)
+      const cacheKey = useSettingsStore.getState().generateCacheKey('userPreferences', targetUserId)
       
       // 检查缓存
-      const cached = GlobalCacheService.get<UserPreferences>(cacheKey)
+      const cached = useSettingsStore.getState().getFromGlobalCache<UserPreferences>(cacheKey)
       
       if (cached.data) {
         return cached.data
@@ -459,16 +526,16 @@ export class UserProfileService {
           const result = preferences ? { ...defaultPreferences, ...preferences } : defaultPreferences
           
           // 设置缓存
-          GlobalCacheService.set(cacheKey, result)
+          useSettingsStore.getState().setGlobalCache(cacheKey, result)
           return result
         } finally {
           // 请求完成后清除Promise引用
-          GlobalCacheService.clearPromise(cacheKey)
+          useSettingsStore.getState().clearGlobalCachePromise(cacheKey)
         }
       })();
 
       // 存储Promise以便去重
-      GlobalCacheService.setPromise(cacheKey, fetchPromise)
+      useSettingsStore.getState().setGlobalCachePromise(cacheKey, fetchPromise)
       return fetchPromise
     } catch (error) {
       console.error('获取用户偏好设置失败:', error)
@@ -484,8 +551,7 @@ export class UserProfileService {
     userId?: string
   ): Promise<UserPreferences> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const user = await useSettingsStore.getState().getCurrentUser();
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -514,8 +580,8 @@ export class UserProfileService {
       await this.setUserSetting('preferences', updatedPreferences, userId)
 
       // 清除缓存，确保下次获取时能获取最新数据
-      const cacheKey = GlobalCacheService.generateCacheKey('userPreferences', targetUserId)
-      GlobalCacheService.clear(cacheKey)
+      const cacheKey = useSettingsStore.getState().generateCacheKey('userPreferences', targetUserId)
+      useSettingsStore.getState().clearGlobalCache(cacheKey)
 
       return updatedPreferences
     } catch (error) {
@@ -529,8 +595,7 @@ export class UserProfileService {
    */
   static async getAllUserSettings(userId?: string): Promise<UserSettings[]> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const user = await useSettingsStore.getState().getCurrentUser();
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -562,8 +627,7 @@ export class UserProfileService {
     userId?: string
   ): Promise<void> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const user = await useSettingsStore.getState().getCurrentUser();
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -582,8 +646,8 @@ export class UserProfileService {
 
       // 如果删除的是偏好设置，清除相关缓存
       if (settingKey === 'preferences') {
-        const cacheKey = GlobalCacheService.generateCacheKey('userPreferences', targetUserId)
-        GlobalCacheService.clear(cacheKey)
+        const cacheKey = useSettingsStore.getState().generateCacheKey('userPreferences', targetUserId)
+        useSettingsStore.getState().clearGlobalCache(cacheKey)
       }
     } catch (error) {
       console.error('删除用户设置失败:', error)
@@ -596,8 +660,7 @@ export class UserProfileService {
    */
   static async resetAllUserSettings(userId?: string): Promise<void> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-      const user = await UserCacheService.getCurrentUser();
+      const user = await useSettingsStore.getState().getCurrentUser();
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -614,7 +677,7 @@ export class UserProfileService {
       }
 
       // 清除该用户的所有缓存
-      GlobalCacheService.clearById(targetUserId)
+      useSettingsStore.getState().clearGlobalCacheById(targetUserId)
     } catch (error) {
       console.error('重置用户设置失败:', error)
       throw error
@@ -628,11 +691,11 @@ export class UserProfileService {
   static clearUserCache(userId?: string): void {
     if (userId) {
       // 清除特定用户的所有缓存
-      GlobalCacheService.clearById(userId)
+      useSettingsStore.getState().clearGlobalCacheById(userId)
     } else {
       // 清除所有用户的缓存
-      GlobalCacheService.clearByType('userProfile')
-      GlobalCacheService.clearByType('userPreferences')
+      useSettingsStore.getState().clearGlobalCacheByType('userProfile')
+      useSettingsStore.getState().clearGlobalCacheByType('userPreferences')
     }
   }
 

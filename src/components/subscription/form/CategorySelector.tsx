@@ -51,7 +51,7 @@ export function CategorySelector({ value, onChange, categories, error }: Categor
             )}
           >
             {value
-              ? categories.find(category => category.id === value)?.label || "Unknown category"
+              ? categories.find(category => category.id === value)?.value || "Unknown category"
               : "Select category..."
             }
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -86,7 +86,7 @@ export function CategorySelector({ value, onChange, categories, error }: Categor
                         value === category.id ? "opacity-100" : "opacity-0"
                       )}
                     />
-                    {category.label}
+                    {category.value}
                   </CommandItem>
                 ))}
               </CommandGroup>

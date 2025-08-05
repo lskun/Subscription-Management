@@ -24,7 +24,8 @@ export function useConfirmation({
 
   const handleConfirm = async () => {
     await onConfirm()
-    closeDialog()
+    // 操作完成后自动关闭对话框
+    setIsOpen(false)
   }
 
   return {

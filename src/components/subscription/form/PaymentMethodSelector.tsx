@@ -51,7 +51,7 @@ export function PaymentMethodSelector({ value, onChange, paymentMethods, error }
             )}
           >
             {value
-              ? paymentMethods.find(method => method.id === value)?.label || "Unknown payment method"
+              ? paymentMethods.find(method => method.id === value)?.value || "Unknown payment method"
               : "Select payment method..."
             }
             <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -86,7 +86,7 @@ export function PaymentMethodSelector({ value, onChange, paymentMethods, error }
                         value === method.id ? "opacity-100" : "opacity-0"
                       )}
                     />
-                    {method.label}
+                    {method.value}
                   </CommandItem>
                 ))}
               </CommandGroup>

@@ -75,12 +75,14 @@ Deno.serve(async (req: Request) => {
     console.log('创建用户配置...')
     const { error: profileError } = await supabaseClient
       .from('user_profiles')
-      .insert({
+      .upsert({
         id: userId,
         display_name: userEmail.split('@')[0] || '新用户',
         email: userEmail,
         timezone: 'Asia/Shanghai',
         language: 'zh-CN'
+      }, {
+        onConflict: 'id'
       })
 
     if (profileError) {

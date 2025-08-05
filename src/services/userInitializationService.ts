@@ -82,15 +82,40 @@ export class UserInitializationService {
    */
   static async isUserInitialized(userId: string): Promise<boolean> {
     try {
-      // 检查用户配置是否存在
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('id')
-        .eq('id', userId)
-        .single()
-
-      if (profileError && profileError.code !== 'PGRST116') {
-        throw profileError
+      // 首先尝试从 settingsStore 的全局缓存中获取用户配置
+      const { useSettingsStore } = await import('@/store/settingsStore')
+      const store = useSettingsStore.getState()
+      const cacheKey = store.generateCacheKey('user_profile', userId)
+      const cachedResult = store.getFromGlobalCache<any>(cacheKey)
+      
+      let hasProfile = false
+      
+      if (cachedResult.data) {
+        // 使用缓存中的数据
+        hasProfile = true
+        console.log('使用缓存检查用户配置存在性')
+      } else {
+        // 缓存不存在，直接查询数据库
+        console.log('🔍 [DEBUG] isUserInitialized: 缓存未命中，查询 user_profiles 表', { userId, cacheKey })
+        console.log('🚨 [NETWORK] 即将发起 user_profiles 数据库查询请求', { userId, timestamp: new Date().toISOString() })
+        const { data: profile, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('id')
+          .eq('id', userId)
+          .single()
+        
+        console.log('🚨 [NETWORK] user_profiles 数据库查询完成', { userId, hasData: !!profile, error: profileError?.message })
+        
+        if (profileError && profileError.code !== 'PGRST116') {
+          throw profileError
+        }
+        
+        hasProfile = !!profile
+        
+        // 将结果缓存起来
+        if (profile) {
+          store.setGlobalCache(cacheKey, profile)
+        }
       }
 
       // 检查用户订阅是否存在
@@ -104,7 +129,7 @@ export class UserInitializationService {
         throw subscriptionError
       }
 
-      return !!(profile && subscription)
+      return !!(hasProfile && subscription)
     } catch (error) {
       console.error('检查用户初始化状态失败:', error)
       return false
@@ -187,14 +212,44 @@ export class UserInitializationService {
     details: any
   }> {
     try {
-      // 检查用户配置
-      const { data: profile, error: profileError } = await supabase
-        .from('user_profiles')
-        .select('*')
-        .eq('id', userId)
-        .single()
-
-      const hasProfile = !profileError && !!profile
+      // 首先尝试从 settingsStore 的全局缓存中获取用户配置
+      const { useSettingsStore } = await import('@/store/settingsStore')
+      const store = useSettingsStore.getState()
+      const cacheKey = store.generateCacheKey('user_profile', userId)
+      const cachedResult = store.getFromGlobalCache<any>(cacheKey)
+      
+      let hasProfile = false
+      let profile = null
+      
+      if (cachedResult.data) {
+        // 使用缓存中的数据
+        hasProfile = true
+        profile = cachedResult.data
+        console.log('使用缓存获取用户配置详情')
+      } else {
+        // 缓存不存在，直接查询数据库
+        console.log('🔍 [DEBUG] getUserInitializationStatus: 缓存未命中，查询 user_profiles 表', { userId, cacheKey })
+        console.log('🚨 [NETWORK] 即将发起 user_profiles 数据库查询请求 (getUserInitializationStatus)', { userId, timestamp: new Date().toISOString() })
+        const { data: profileData, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('id', userId)
+          .single()
+        
+        console.log('🚨 [NETWORK] user_profiles 数据库查询完成 (getUserInitializationStatus)', { userId, hasData: !!profileData, error: profileError?.message })
+        
+        if (profileError && profileError.code !== 'PGRST116') {
+          throw profileError
+        }
+        
+        hasProfile = !!profileData
+        profile = profileData
+        
+        // 将结果缓存起来
+        if (profileData) {
+          store.setGlobalCache(cacheKey, profileData)
+        }
+      }
 
       // 检查用户订阅
       const { data: subscription, error: subscriptionError } = await supabase
@@ -223,7 +278,7 @@ export class UserInitializationService {
           subscription: hasSubscription ? subscription : null,
           settings: hasSettings ? settings : [],
           errors: {
-            profile: profileError?.message,
+            profile: null, // 使用 UserProfileService，错误已在服务内部处理
             subscription: subscriptionError?.message,
             settings: settingsError?.message
           }

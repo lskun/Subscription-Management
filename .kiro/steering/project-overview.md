@@ -16,6 +16,7 @@
 - `server/` - 后端API服务
 - `docs/` - 项目文档
 - `.kiro/` - Kiro配置和引导文档
+- `supabase/migrations/000_database_schema.sql` - Supabase数据库完整的table schema、 trigger以及function说明
 
 ## 核心功能
 1. 订阅管理 - 添加、编辑、删除订阅

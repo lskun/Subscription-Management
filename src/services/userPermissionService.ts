@@ -74,8 +74,8 @@ export class UserPermissionService {
    */
   static async getUserSubscriptionPlan(userId?: string): Promise<UserSubscriptionPlan | null> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+      const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -169,8 +169,8 @@ export class UserPermissionService {
     userId?: string
   ): Promise<QuotaUsage | null> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+      const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     const targetUserId = userId || user?.id
       
       if (!targetUserId) {
@@ -253,8 +253,8 @@ export class UserPermissionService {
     userId?: string
   ): Promise<void> {
     try {
-      const { UserCacheService } = await import('./userCacheService');
-    const user = await UserCacheService.getCurrentUser();
+      const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser();
     const targetUserId = userId || user?.id
       
       if (!targetUserId) {

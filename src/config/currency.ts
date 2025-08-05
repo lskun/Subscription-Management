@@ -2,7 +2,7 @@
  * 货币系统中央配置
  * 统一管理基础货币设置，避免硬编码分散在各个文件中
  */
-
+import { useSettingsStore } from '@/store/settingsStore'
 // 支持的货币类型
 export type CurrencyType = 'USD' | 'EUR' | 'GBP' | 'CAD' | 'AUD' | 'JPY' | 'CNY';
 
@@ -101,6 +101,6 @@ export const DEFAULT_EXCHANGE_RATES: Record<CurrencyType, number> = BASE_RATES[B
 
 // 工具函数
 export const isBaseCurrency = (currency: string): boolean => currency === BASE_CURRENCY;
-export const getBaseCurrency = (): CurrencyType => BASE_CURRENCY;
+export const getBaseCurrency = (): CurrencyType => useSettingsStore.getState().currency;
 export const getCurrencySymbol = (currency: CurrencyType): string => CURRENCY_INFO[currency]?.symbol || currency;
 export const getCurrencyName = (currency: CurrencyType): string => CURRENCY_INFO[currency]?.name || currency;

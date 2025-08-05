@@ -27,8 +27,34 @@ export function calculateNextBillingDate(
 }
 
 /**
+ * Calculate the next billing date for a new subscription
+ * For new subscriptions, next billing date should be start date + one billing cycle
+ */
+export function calculateNextBillingDateForNewSubscription(
+  startDate: Date,
+  billingCycle: BillingCycle
+): string {
+  const nextBilling = new Date(startDate)
+
+  switch (billingCycle) {
+    case 'monthly':
+      nextBilling.setMonth(nextBilling.getMonth() + 1)
+      break
+    case 'yearly':
+      nextBilling.setFullYear(nextBilling.getFullYear() + 1)
+      break
+    case 'quarterly':
+      nextBilling.setMonth(nextBilling.getMonth() + 3)
+      break
+  }
+
+  return nextBilling.toISOString().split('T')[0]
+}
+
+/**
  * Calculate the next billing date based on start date, current date and billing cycle
  * Calculates the next billing date that occurs after the current date, based on the billing cycle from start date
+ * This function is used for existing subscriptions to find the next billing date after today
  */
 export function calculateNextBillingDateFromStart(
   startDate: Date,
@@ -61,15 +87,20 @@ export function calculateNextBillingDateFromStart(
 
 /**
  * Format a date as a readable string
+ * 处理null/undefined值，避免显示错误日期
  */
-export function formatDate(dateString: string): string {
+export function formatDate(dateString: string | null): string {
+  if (!dateString) {
+    return 'N/A'
+  }
+  
   const options: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: 'short',
     day: 'numeric'
   }
   
-  return new Date(dateString).toLocaleDateString(undefined, options)
+  return new Date(dateString).toLocaleDateString('en-US', options)
 }
 
 /**
@@ -129,26 +160,26 @@ export function getStatusVariant(status: SubscriptionStatus): 'default' | 'secon
 }
 
 /**
- * Get category label from subscription data with fallback to store data
+ * Get category value from subscription data with fallback to store data
  */
 export function getCategoryLabel(
   subscription: any,
   categories: Array<{ id: string | number; value: string; label: string }>
 ): string {
-  return subscription.category?.label ||
-    categories.find(c => c.id === subscription.categoryId)?.label ||
+  return subscription.category?.value ||
+    categories.find(c => c.id === subscription.categoryId)?.value ||
     'Uncategorized'
 }
 
 /**
- * Get payment method label from subscription data with fallback to store data
+ * Get payment method value from subscription data with fallback to store data
  */
 export function getPaymentMethodLabel(
   subscription: any,
   paymentMethods: Array<{ id: string | number; value: string; label: string }>
 ): string {
-  return subscription.paymentMethod?.label ||
-    paymentMethods.find(p => p.id === subscription.paymentMethodId)?.label ||
+  return subscription.paymentMethod?.value ||
+    paymentMethods.find(p => p.id === subscription.paymentMethodId)?.value ||
     'Unknown Payment Method'
 }
 

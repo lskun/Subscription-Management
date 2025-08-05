@@ -10,6 +10,7 @@ export type SubscriptionFormData = {
   billingCycle: "monthly" | "quarterly" | "yearly"
   amount: number
   currency: string
+  convertedAmount: number
   paymentMethodId: string // Changed to string for Supabase UUID
   startDate: string
   status: "active" | "trial" | "cancelled"

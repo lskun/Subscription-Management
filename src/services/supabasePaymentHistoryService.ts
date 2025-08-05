@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase'
-import { UserCacheService } from './userCacheService'
 
 // Supabase数据库字段类型（snake_case）
 interface SupabasePaymentHistory {
@@ -190,7 +189,8 @@ export class SupabasePaymentHistoryService {
    */
   async createPaymentHistory(paymentData: Omit<PaymentHistoryRecord, 'id' | 'userId' | 'createdAt'>): Promise<PaymentHistoryRecord> {
     // 获取当前用户ID
-    const user = await UserCacheService.getCurrentUser()
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser()
     if (!user) {
       throw new Error('用户未登录')
     }
@@ -431,7 +431,8 @@ export class SupabasePaymentHistoryService {
     paymentsData: Omit<PaymentHistoryRecord, 'id' | 'userId' | 'createdAt'>[]
   ): Promise<PaymentHistoryRecord[]> {
     // 获取当前用户ID
-    const user = await UserCacheService.getCurrentUser()
+    const { useSettingsStore } = await import('@/store/settingsStore');
+    const user = await useSettingsStore.getState().getCurrentUser()
     if (!user) {
       throw new Error('用户未登录')
     }
