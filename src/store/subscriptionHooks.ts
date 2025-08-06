@@ -1,12 +1,15 @@
 import { useMemo } from 'react'
 import { useSubscriptionStore } from './subscriptionStore'
 import { useSettingsStore } from './settingsStore'
-import { convertCurrency } from '@/utils/currency'
+import { convertCurrency } from '../utils/currency'
 
-// Performance optimization hooks for subscription store
+/**
+ * 订阅统计数据Hook - 计算总月度和年度支出以及活跃订阅数量
+ * @returns 包含总月度支出、总年度支出和活跃订阅数量的统计数据
+ */
 export const useSubscriptionStats = () => {
-  const subscriptions = useSubscriptionStore(state => state.subscriptions)
-  const userCurrency = useSettingsStore(state => state.currency)
+  const { subscriptions } = useSubscriptionStore()
+  const { currency: userCurrency } = useSettingsStore()
 
   return useMemo(() => {
     const activeSubscriptions = subscriptions.filter(sub => sub.status === 'active')
@@ -51,10 +54,13 @@ export const useSubscriptionStats = () => {
   }, [subscriptions, userCurrency])
 }
 
+/**
+ * 按分类统计支出Hook - 计算每个分类的月度支出
+ * @returns 按分类分组的月度支出数据
+ */
 export const useSpendingByCategory = () => {
-  const subscriptions = useSubscriptionStore(state => state.subscriptions)
-  const categories = useSubscriptionStore(state => state.categories)
-  const userCurrency = useSettingsStore(state => state.currency)
+  const { subscriptions, categories } = useSubscriptionStore()
+  const { currency: userCurrency } = useSettingsStore()
   
   return useMemo(() => {
     const uniqueCategoryIds = [...new Set(subscriptions.map(sub => sub.categoryId).filter(id => id != null))]
@@ -86,8 +92,13 @@ export const useSpendingByCategory = () => {
   }, [subscriptions, categories, userCurrency])
 }
 
+/**
+ * 即将续费订阅Hook - 获取指定天数内即将续费的订阅
+ * @param days 天数，默认30天
+ * @returns 即将续费的订阅列表
+ */
 export const useUpcomingRenewals = (days: number = 30) => {
-  const subscriptions = useSubscriptionStore(state => state.subscriptions)
+  const { subscriptions } = useSubscriptionStore()
   
   return useMemo(() => {
     const today = new Date()
@@ -104,8 +115,13 @@ export const useUpcomingRenewals = (days: number = 30) => {
   }, [subscriptions, days])
 }
 
+/**
+ * 最近付费订阅Hook - 获取指定天数内最近付费的订阅
+ * @param days 天数，默认7天
+ * @returns 最近付费的订阅列表
+ */
 export const useRecentlyPaid = (days: number = 7) => {
-  const subscriptions = useSubscriptionStore(state => state.subscriptions)
+  const { subscriptions } = useSubscriptionStore()
   
   return useMemo(() => {
     const today = new Date()

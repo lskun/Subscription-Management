@@ -1,9 +1,12 @@
 import { useMemo } from 'react'
 import { useSubscriptionStore } from './subscriptionStore'
 import { useSettingsStore } from './settingsStore'
-import { convertCurrency } from '@/utils/currency'
+import { convertCurrency } from '../utils/currency'
 import { startOfMonth, endOfMonth, isWithinInterval, format } from 'date-fns'
 
+/**
+ * 月度支出数据接口
+ */
 interface MonthlyExpenseData {
   month: string
   total: number
@@ -13,10 +16,14 @@ interface MonthlyExpenseData {
   }>
 }
 
+/**
+ * 月度支出Hook - 计算指定月份数的月度支出数据
+ * @param months 月份数，默认12个月
+ * @returns 月度支出数据数组
+ */
 export const useMonthlyExpenses = (months: number = 12) => {
-  const subscriptions = useSubscriptionStore(state => state.subscriptions)
-  const categories = useSubscriptionStore(state => state.categories)
-  const userCurrency = useSettingsStore(state => state.currency)
+  const { subscriptions, categories } = useSubscriptionStore()
+  const { currency: userCurrency } = useSettingsStore()
   
   return useMemo(() => {
     const monthlyData: MonthlyExpenseData[] = []

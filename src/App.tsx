@@ -25,7 +25,7 @@ function App() {
   return (
     <AuthProvider>
       <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
-        <Suspense fallback={<div className="flex items-center justify-center h-64">Loading...</div>}>
+        <Suspense fallback={null}>
           <Routes>
             {/* 公开路由 */}
             <Route path="/" element={<LandingPage />} />
