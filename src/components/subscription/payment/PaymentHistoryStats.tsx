@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -21,12 +21,31 @@ interface PaymentHistoryStatsProps {
   className?: string
 }
 
-export function PaymentHistoryStats({ subscriptionId, className }: PaymentHistoryStatsProps) {
+/**
+ * PaymentHistoryStats组件的引用接口
+ * 用于暴露刷新统计数据的方法
+ */
+export interface PaymentHistoryStatsRef {
+  refreshStats: () => Promise<void>
+}
+
+/**
+ * 支付历史统计组件
+ * 显示支付总金额、支付次数、成功率和最近支付信息
+ * @param subscriptionId - 订阅ID，如果提供则只显示特定订阅的统计
+ * @param className - 自定义CSS类名
+ * @param ref - 组件引用，用于外部调用刷新方法
+ */
+export const PaymentHistoryStats = forwardRef<PaymentHistoryStatsRef, PaymentHistoryStatsProps>(
+  ({ subscriptionId, className }, ref) => {
   const [stats, setStats] = useState<PaymentHistoryStatsType | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const { toast } = useToast()
 
+  /**
+   * 获取支付历史统计数据
+   */
   const fetchStats = async () => {
     setIsLoading(true)
     setError(null)
@@ -36,10 +55,10 @@ export function PaymentHistoryStats({ subscriptionId, className }: PaymentHistor
       const statsData = await supabasePaymentHistoryService.getPaymentHistoryStats(subscriptionId)
       setStats(statsData)
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '获取支付统计失败'
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch payment history stats'
       setError(errorMessage)
       toast({
-        title: "错误",
+        title: "Error",
         description: errorMessage,
         variant: "destructive",
       })
@@ -47,6 +66,13 @@ export function PaymentHistoryStats({ subscriptionId, className }: PaymentHistor
       setIsLoading(false)
     }
   }
+
+  /**
+   * 暴露给父组件的刷新方法
+   */
+  useImperativeHandle(ref, () => ({
+    refreshStats: fetchStats
+  }), [subscriptionId])
 
   useEffect(() => {
     fetchStats()
@@ -78,7 +104,7 @@ export function PaymentHistoryStats({ subscriptionId, className }: PaymentHistor
           <div className="text-center">
             <XCircle className="h-8 w-8 text-destructive mx-auto mb-2" />
             <p className="text-sm text-muted-foreground">
-              {error || '无法加载支付统计'}
+              {error || 'Failed to fetch payment history stats'}
             </p>
           </div>
         </CardContent>
@@ -96,16 +122,16 @@ export function PaymentHistoryStats({ subscriptionId, className }: PaymentHistor
       <Card className="min-h-[120px]">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <CardTitle className="text-sm font-medium text-left leading-tight flex-1 min-w-0">
-            总支付金额
+            Payment Amount
           </CardTitle>
           <DollarSign className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
         </CardHeader>
         <CardContent className="pt-0 space-y-1">
           <div className="text-xl font-bold break-words leading-tight">
-            {formatWithUserCurrency(stats.totalAmount, 'CNY')}
+          {formatWithUserCurrency(stats.totalAmount, 'CNY')}
           </div>
           <p className="text-xs text-muted-foreground break-words leading-tight">
-            平均 {formatWithUserCurrency(stats.averageAmount, 'CNY')}
+            Average {formatWithUserCurrency(stats.averageAmount, 'CNY')}
           </p>
         </CardContent>
       </Card>
@@ -114,22 +140,21 @@ export function PaymentHistoryStats({ subscriptionId, className }: PaymentHistor
       <Card className="min-h-[120px]">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <CardTitle className="text-sm font-medium text-left leading-tight flex-1 min-w-0">
-            支付次数
+            Total Payments
           </CardTitle>
           <RefreshCw className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
         </CardHeader>
-        <CardContent className="pt-0 space-y-2">
-          <div className="text-xl font-bold">{stats.totalPayments} 次</div>
-          <div className="flex flex-wrap gap-1">
-            <Badge variant="outline" className="text-xs px-2 py-0.5 whitespace-nowrap">
-              成功 {stats.successfulPayments}
-            </Badge>
-            {stats.failedPayments > 0 && (
-              <Badge variant="destructive" className="text-xs px-2 py-0.5 whitespace-nowrap">
-                失败 {stats.failedPayments}
-              </Badge>
+        <CardContent className="pt-0 space-y-1">
+          <div className="text-xl font-bold break-words leading-tight">{stats.totalPayments}</div>
+          <p className="text-xs text-muted-foreground break-words leading-tight">
+            Success {stats.successfulPayments}
+          </p>
+          {stats.failedPayments > 0 && (
+              <p className="text-xs text-muted-foreground break-words leading-tight">
+                Fail {stats.failedPayments}
+              </p>
             )}
-          </div>
+          
         </CardContent>
       </Card>
 
@@ -137,7 +162,7 @@ export function PaymentHistoryStats({ subscriptionId, className }: PaymentHistor
       <Card className="min-h-[120px]">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <CardTitle className="text-sm font-medium text-left leading-tight flex-1 min-w-0">
-            成功率
+            Success Rate
           </CardTitle>
           {successRate >= 90 ? (
             <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0 ml-2" />
@@ -148,9 +173,9 @@ export function PaymentHistoryStats({ subscriptionId, className }: PaymentHistor
           )}
         </CardHeader>
         <CardContent className="pt-0 space-y-1">
-          <div className="text-xl font-bold">{successRate}%</div>
+          <div className="text-xl font-bold break-words leading-tight">{successRate}%</div>
           <p className="text-xs text-muted-foreground break-words leading-tight">
-            {stats.successfulPayments}/{stats.totalPayments} 成功
+            {stats.successfulPayments}/{stats.totalPayments} Success
           </p>
         </CardContent>
       </Card>
@@ -159,19 +184,19 @@ export function PaymentHistoryStats({ subscriptionId, className }: PaymentHistor
       <Card className="min-h-[120px]">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
           <CardTitle className="text-sm font-medium text-left leading-tight flex-1 min-w-0">
-            最近支付
+            Recent Payment
           </CardTitle>
           <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
         </CardHeader>
         <CardContent className="pt-0 space-y-1">
           <div className="text-lg font-bold break-words leading-tight">
-            {stats.lastPaymentDate ? formatDateDisplay(stats.lastPaymentDate) : '暂无'}
+            {stats.lastPaymentDate ? formatDateDisplay(stats.lastPaymentDate) : 'No recent payment'}
           </div>
           <p className="text-xs text-muted-foreground break-words leading-tight">
-            {stats.refundedPayments > 0 ? `${stats.refundedPayments} 笔退款` : '无退款记录'}
+            {stats.pendingPayments > 0 ? `${stats.pendingPayments} Pending` : 'No pending record'}
           </p>
         </CardContent>
       </Card>
     </div>
   )
-}
+})

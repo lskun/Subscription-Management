@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import { 
   Calendar, 
   Plus, 
@@ -39,16 +39,22 @@ import {
   SubscriptionStatus,
   BillingCycle
 } from "@/store/subscriptionStore"
-import { useSettingsStore } from "@/store/settingsStore"
+
 import { useSubscriptionsData } from "@/hooks/useSubscriptionsData"
 import { SubscriptionData } from "@/services/subscriptionsEdgeFunctionService"
-import { exportSubscriptionsToCSV } from "@/lib/subscription-utils"
+
 
 import { SubscriptionCard } from "@/components/subscription/SubscriptionCard"
 import { SubscriptionForm } from "@/components/subscription/SubscriptionForm"
 import { SubscriptionDetailDialog } from "@/components/subscription/SubscriptionDetailDialog"
+import { SubscriptionSuccessDialog } from "@/components/subscription/SubscriptionSuccessDialog"
 import { ImportModal } from "@/components/imports/ImportModal"
 import { ExportModal } from "@/components/exports/ExportModal"
+import { PaymentHistorySheet } from "@/components/subscription/PaymentHistorySheet"
+import { DuplicatePaymentConfirmDialog } from "@/components/subscription/payment/DuplicatePaymentConfirmDialog"
+import { DuplicatePaymentDetectionResult } from "@/services/duplicatePaymentDetectionService"
+import { usePaymentRecordOperations } from "@/hooks/usePaymentRecordOperations"
+import { AddPaymentRecordParams } from "@/services/paymentRecordService"
 
 export function SubscriptionsPage() {
   const { toast } = useToast()
@@ -62,46 +68,76 @@ export function SubscriptionsPage() {
   const [billingCycleFilterOpen, setBillingCycleFilterOpen] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
+  
+  // 订阅成功对话框相关状态
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [newlyCreatedSubscription, setNewlyCreatedSubscription] = useState<Subscription | null>(null)
+  
+  // 支付记录表单相关状态
+  const [showPaymentForm, setShowPaymentForm] = useState(false)
+  const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null)
   const [detailSubscription, setDetailSubscription] = useState<Subscription | null>(null)
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc")
+  
+  // 重复支付检测相关状态（保留用于兼容现有的DuplicatePaymentWarningDialog）
+  const [showDuplicateWarning, setShowDuplicateWarning] = useState(false)
+  const [duplicateDetectionResult, setDuplicateDetectionResult] = useState<DuplicatePaymentDetectionResult | null>(null)
+  const [pendingPaymentData, setPendingPaymentData] = useState<any>(null)
+  
+  // 统一的支付记录操作hook
+  const {
+    isLoading: isAddingPayment,
+    addPaymentRecord,
+    confirmDuplicatePayment,
+    cancelDuplicatePayment,
+    showDuplicateWarning: showDuplicateWarningNew,
+    duplicateDetectionResult: duplicateDetectionResultNew
+  } = usePaymentRecordOperations({
+    onSuccess: (result) => {
+      // 关闭表单
+      setShowPaymentForm(false)
+      setSelectedSubscription(null)
+      
+      // 如果是从成功对话框来的，也关闭成功对话框
+      if (showSuccessDialog) {
+        setShowSuccessDialog(false)
+        setNewlyCreatedSubscription(null)
+      }
+    },
+    onError: (error) => {
+      console.error('支付记录添加失败:', error)
+    },
+    onDuplicateDetected: (result, pendingData) => {
+      // 使用旧的状态管理方式来兼容现有的DuplicatePaymentWarningDialog
+      setDuplicateDetectionResult(result)
+      setPendingPaymentData(pendingData)
+      setShowDuplicateWarning(true)
+    }
+  })
   // 管理整个订阅区域的loading状态
   const [operationLoading, setOperationLoadingState] = useState<{ isLoading: boolean; action?: string; message?: string }>({ isLoading: false })
-
-  const { currency: userCurrency } = useSettingsStore()
   
   /**
    * 设置操作loading状态
    * @param action - 执行的操作类型
    * @param message - loading消息
    */
-  const setOperationLoading = (action: string, message: string) => {
+  const setOperationLoading = useCallback((action: string, message: string) => {
     setOperationLoadingState({ isLoading: true, action, message })
-  }
+  }, [])
 
   /**
    * 清除操作loading状态
    */
-  const clearOperationLoading = () => {
+  const clearOperationLoading = useCallback(() => {
     setOperationLoadingState({ isLoading: false })
-  }
+  }, [])
   
   // Use the new subscriptions data hook
   const {
     subscriptions,
     categories,
-    paymentMethods,
-    summary,
     isLoading,
-    error: subscriptionsError,
-    currentFilters,
-    currentSorting,
-    refreshData,
-    updateFilters,
-    updateSorting,
-    searchSubscriptions,
-    filterByStatus,
-    filterByCategories,
-    filterByBillingCycles,
     updateLocalSubscription,
     deleteLocalSubscription,
     addLocalSubscription
@@ -117,16 +153,24 @@ export function SubscriptionsPage() {
     manualRenewSubscription
   } = useSubscriptionStore()
   
-  // Get categories from Edge Function data
-  const usedCategories = categories.map(cat => ({
-    id: cat.id,
-    value: cat.value,
-    label: cat.label
-  }))
+  // 本地筛选状态：分离原始数据和显示数据
+  const [allSubscriptions, setAllSubscriptions] = useState<SubscriptionData[]>([])
+  const [filteredSubscriptions, setFilteredSubscriptions] = useState<SubscriptionData[]>([])
   
-  // Get unique billing cycles in use
+  // Get categories from Edge Function data - 只显示有订阅的分类
+  const usedCategories = categories
+    .map(cat => ({
+      id: cat.id,
+      value: cat.value,
+      label: cat.label
+    }))
+    .filter(category => 
+      subscriptions.some(s => s.category?.value === category.value)
+    )
+  
+  // Get unique billing cycles in use - 基于原始数据计算
   const getUniqueBillingCycles = () => {
-    const billingCycles = subscriptions.map(sub => sub.billingCycle)
+    const billingCycles = allSubscriptions.map(sub => sub.billingCycle)
     return Array.from(new Set(billingCycles)).map(cycle => ({
       value: cycle,
       label: cycle.charAt(0).toUpperCase() + cycle.slice(1)
@@ -135,8 +179,95 @@ export function SubscriptionsPage() {
   
   const usedBillingCycles = getUniqueBillingCycles()
 
-  // Subscriptions are already filtered and sorted by Edge Function
-  const sortedSubscriptions = subscriptions
+  /**
+   * 本地状态筛选函数 - 根据状态筛选订阅
+   * @param subscriptions - 订阅数据数组
+   * @param status - 筛选状态
+   * @returns 筛选后的订阅数据
+   */
+  const filterByStatusLocal = useCallback((subscriptions: SubscriptionData[], status: string) => {
+    if (status === 'all') return subscriptions
+    return subscriptions.filter(sub => sub.status === status)
+  }, [])
+
+  /**
+   * 本地分类筛选函数 - 根据分类筛选订阅
+   * @param subscriptions - 订阅数据数组
+   * @param categories - 筛选分类数组
+   * @returns 筛选后的订阅数据
+   */
+  const filterByCategoriesLocal = useCallback((subscriptions: SubscriptionData[], categories: string[]) => {
+    if (categories.length === 0) return subscriptions
+    return subscriptions.filter(sub => 
+      sub.category && categories.includes(sub.category.value)
+    )
+  }, [])
+
+  /**
+   * 本地账单周期筛选函数 - 根据账单周期筛选订阅
+   * @param subscriptions - 订阅数据数组
+   * @param cycles - 账单周期数组
+   * @returns 筛选后的订阅数据
+   */
+  const filterByBillingCyclesLocal = useCallback((subscriptions: SubscriptionData[], cycles: BillingCycle[]) => {
+    if (cycles.length === 0) return subscriptions
+    return subscriptions.filter(sub => cycles.includes(sub.billingCycle as BillingCycle))
+  }, [])
+
+  /**
+   * 本地搜索筛选函数 - 根据搜索词筛选订阅
+   * @param subscriptions - 订阅数据数组
+   * @param searchTerm - 搜索词
+   * @returns 筛选后的订阅数据
+   */
+  const filterBySearchLocal = useCallback((subscriptions: SubscriptionData[], searchTerm: string) => {
+    if (!searchTerm.trim()) return subscriptions
+    const term = searchTerm.toLowerCase()
+    return subscriptions.filter(sub => 
+      sub.name.toLowerCase().includes(term) ||
+      sub.notes?.toLowerCase().includes(term) ||
+      sub.category?.label.toLowerCase().includes(term)
+    )
+  }, [])
+
+  /**
+   * 组合所有筛选逻辑 - 应用所有筛选条件
+   * @param subscriptions - 原始订阅数据
+   * @returns 经过所有筛选条件处理后的订阅数据
+   */
+  const applyAllFilters = useCallback((subscriptions: SubscriptionData[]) => {
+    let filtered = subscriptions
+    
+    // 应用状态筛选
+    filtered = filterByStatusLocal(filtered, currentView)
+    
+    // 应用分类筛选
+    filtered = filterByCategoriesLocal(filtered, selectedCategories)
+    
+    // 应用账单周期筛选
+    filtered = filterByBillingCyclesLocal(filtered, selectedBillingCycles)
+    
+    // 应用搜索筛选
+    filtered = filterBySearchLocal(filtered, searchTerm)
+    
+    return filtered
+  }, [currentView, selectedCategories, selectedBillingCycles, searchTerm, filterByStatusLocal, filterByCategoriesLocal, filterByBillingCyclesLocal, filterBySearchLocal])
+
+  // 数据同步逻辑：初始数据加载
+  useEffect(() => {
+    if (subscriptions.length > 0) {
+      setAllSubscriptions(subscriptions)
+    }
+  }, [subscriptions])
+
+  // 筛选触发机制：当原始数据或筛选条件变化时，重新计算显示数据
+  useEffect(() => {
+    const filtered = applyAllFilters(allSubscriptions)
+    setFilteredSubscriptions(filtered)
+  }, [allSubscriptions, applyAllFilters])
+
+  // 使用筛选后的数据作为显示数据
+  const sortedSubscriptions = filteredSubscriptions
 
   // Handler for adding new subscription
   const handleAddSubscription = useCallback(async (subscription: Omit<Subscription, "id" | "lastBillingDate">) => {
@@ -179,15 +310,76 @@ export function SubscriptionsPage() {
         website: newSubscription.website
       }
       addLocalSubscription(subscriptionData)
+      // 同步更新本地原始数据
+      setAllSubscriptions(prev => [...prev, subscriptionData])
     }
     
-    toast({
-      title: "Subscription added",
-      description: `${subscription.name} has been added successfully.`
-    })
+    // 显示成功对话框而不是简单的 toast
+    setNewlyCreatedSubscription(newSubscription)
+    setShowSuccessDialog(true)
     
     clearOperationLoading()
   }, [addSubscription, addLocalSubscription, toast, setOperationLoading, clearOperationLoading])
+
+  /**
+   * 处理从成功对话框添加支付记录
+   */
+  const handleAddPaymentFromSuccess = useCallback(() => {
+    if (newlyCreatedSubscription) {
+      setSelectedSubscription(newlyCreatedSubscription)
+      setShowPaymentForm(true)
+    }
+  }, [newlyCreatedSubscription])
+
+  /**
+   * 处理从成功对话框导入支付记录
+   */
+  const handleImportPaymentsFromSuccess = useCallback(() => {
+    if (newlyCreatedSubscription) {
+      // TODO 可以在这里实现导入支付记录的逻辑
+      // 暂时显示提示信息
+      toast({
+        title: "Import Feature",
+        description: "Payment record import feature is under development.",
+      })
+    }
+  }, [newlyCreatedSubscription, toast])
+
+  /**
+   * 处理从成功对话框查看订阅详情
+   */
+  const handleViewSubscriptionFromSuccess = useCallback(() => {
+    if (newlyCreatedSubscription) {
+      setDetailSubscription(newlyCreatedSubscription)
+    }
+  }, [newlyCreatedSubscription])
+
+  /**
+   * 处理支付记录表单提交（使用统一的支付记录服务）
+   */
+  const handlePaymentSubmit = useCallback(async (paymentData: {
+    subscriptionId: string;
+    paymentDate: string;
+    amountPaid: number;
+    currency: string;
+    billingPeriodStart: string;
+    billingPeriodEnd: string;
+    status: string;
+    notes?: string;
+  }) => {
+    const params: AddPaymentRecordParams = {
+      subscriptionId: paymentData.subscriptionId,
+      paymentDate: paymentData.paymentDate,
+      amountPaid: paymentData.amountPaid,
+      currency: paymentData.currency,
+      billingPeriodStart: paymentData.billingPeriodStart,
+      billingPeriodEnd: paymentData.billingPeriodEnd,
+      status: paymentData.status as 'success' | 'failed' | 'pending',
+      notes: paymentData.notes
+    }
+    
+    await addPaymentRecord(params)
+  }, [addPaymentRecord])
 
   // Handler for updating subscription
   const handleUpdateSubscription = useCallback(async (id: string, data: Omit<Subscription, "id" | "lastBillingDate">) => {
@@ -208,7 +400,12 @@ export function SubscriptionsPage() {
     // Update local state instead of refreshing
      const updatedSubscription = subscriptions.find(sub => sub.id === id)
      if (updatedSubscription) {
-       updateLocalSubscription({ ...updatedSubscription, ...data })
+       const updatedData = { ...updatedSubscription, ...data }
+       updateLocalSubscription(updatedData)
+       // 同步更新本地原始数据
+       setAllSubscriptions(prev => 
+         prev.map(sub => sub.id === id ? updatedData : sub)
+       )
      }
     
     setEditingSubscription(null)
@@ -218,7 +415,16 @@ export function SubscriptionsPage() {
     })
     
     clearOperationLoading()
-  }, [updateSubscription, toast, setOperationLoading, clearOperationLoading, subscriptions, updateLocalSubscription])
+  }, [updateSubscription, updateLocalSubscription, setOperationLoading, clearOperationLoading, toast, subscriptions, setAllSubscriptions, setEditingSubscription])
+
+  /**
+   * 处理重复支付警告对话框的确认操作（使用统一的支付记录服务）
+   */
+  const handleDuplicatePaymentConfirm = useCallback(async () => {
+    await confirmDuplicatePayment()
+  }, [confirmDuplicatePayment])
+
+
 
   // State for delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
@@ -247,6 +453,8 @@ export function SubscriptionsPage() {
       
       // Remove from local state instead of refreshing
       deleteLocalSubscription(deleteTarget.id)
+      // 同步更新本地原始数据
+      setAllSubscriptions(prev => prev.filter(sub => sub.id !== deleteTarget.id))
       
       toast({
         title: "Subscription deleted",
@@ -320,10 +528,15 @@ export function SubscriptionsPage() {
       const currentSubscription = subscriptions.find(sub => sub.id === id)
       if (currentSubscription) {
         const mergedData = { ...currentSubscription, ...updateData };
-        updateLocalSubscription({
+        const updatedData = {
           ...mergedData,
           nextBillingDate: mergedData.nextBillingDate || '',
-        });
+        }
+        updateLocalSubscription(updatedData);
+        // 同步更新本地原始数据
+        setAllSubscriptions(prev => 
+          prev.map(sub => sub.id === id ? updatedData : sub)
+        )
       }
 
       toast({
@@ -366,11 +579,16 @@ export function SubscriptionsPage() {
        if (renewalData) {
          const currentSubscription = subscriptions.find(sub => sub.id === id)
          if (currentSubscription) {
-           updateLocalSubscription({
+           const updatedData = {
              ...currentSubscription,
              nextBillingDate: renewalData.newNextBilling,
              lastBillingDate: renewalData.newLastBilling
-           })
+           }
+           updateLocalSubscription(updatedData)
+           // 同步更新本地原始数据
+           setAllSubscriptions(prev => 
+             prev.map(sub => sub.id === id ? updatedData : sub)
+           )
          }
        }
 
@@ -390,27 +608,36 @@ export function SubscriptionsPage() {
     }
   }, [subscriptions, manualRenewSubscription, toast, setOperationLoading, clearOperationLoading, updateLocalSubscription])
 
-  // Handler for toggling a category in the filter
+  /**
+   * 本地分类筛选切换处理器 - 切换分类筛选状态
+   * @param categoryValue - 分类值
+   */
   const toggleCategoryFilter = useCallback((categoryValue: string) => {
     const newCategories = selectedCategories.includes(categoryValue)
       ? selectedCategories.filter(c => c !== categoryValue)
       : [...selectedCategories, categoryValue]
     
     setSelectedCategories(newCategories)
-    filterByCategories(newCategories)
-  }, [selectedCategories, filterByCategories])
+    // 本地筛选会通过useEffect自动触发
+  }, [selectedCategories])
   
-  // Handler for toggling a billing cycle in the filter
+  /**
+   * 本地账单周期筛选切换处理器 - 切换账单周期筛选状态
+   * @param billingCycle - 账单周期
+   */
   const toggleBillingCycleFilter = useCallback((billingCycle: BillingCycle) => {
     const newBillingCycles = selectedBillingCycles.includes(billingCycle)
       ? selectedBillingCycles.filter(c => c !== billingCycle)
       : [...selectedBillingCycles, billingCycle]
     
     setSelectedBillingCycles(newBillingCycles)
-    filterByBillingCycles(newBillingCycles)
-  }, [selectedBillingCycles, filterByBillingCycles])
+    // 本地筛选会通过useEffect自动触发
+  }, [selectedBillingCycles])
 
-  // Handler for importing subscriptions
+  /**
+   * 批量导入订阅处理器 - 导入多个订阅并同步本地状态
+   * @param newSubscriptions - 新订阅数据数组
+   */
   const handleImportSubscriptions = useCallback(async (newSubscriptions: Omit<Subscription, "id">[]) => {
     const { error } = await bulkAddSubscriptions(newSubscriptions);
 
@@ -421,14 +648,16 @@ export function SubscriptionsPage() {
         variant: "destructive",
       });
     } else {
+      // 由于 bulkAddSubscriptions 不返回导入的数据，我们需要重新获取订阅列表
+      // 这将触发 useEffect 来更新本地状态
+      await fetchSubscriptions();
+      
       toast({
         title: "Import successful",
         description: `${newSubscriptions.length} subscriptions have been imported.`,
       });
     }
-
-    // No need to refresh data as subscriptionStore already handles it
-    }, [bulkAddSubscriptions, toast]);
+  }, [bulkAddSubscriptions, toast, fetchSubscriptions]);
 
   // Handler for exporting subscriptions
   const handleExportSubscriptions = () => {
@@ -520,7 +749,7 @@ export function SubscriptionsPage() {
             value={searchTerm}
             onChange={(e) => {
               setSearchTerm(e.target.value)
-              searchSubscriptions(e.target.value)
+              // 本地搜索筛选会通过useEffect自动触发
             }}
             className="w-full"
             icon={<Search className="h-4 w-4 text-muted-foreground" />}
@@ -574,7 +803,7 @@ export function SubscriptionsPage() {
                         <Check className="h-3 w-3" />
                       )}
                     </div>
-                    <div className="text-sm">{category.label}</div>
+                    <div className="text-sm">{category.value}</div>
                     <Badge variant="outline" className="ml-auto text-xs">
                       {subscriptions.filter(s => s.category?.value === category.value).length}
                     </Badge>
@@ -655,7 +884,6 @@ export function SubscriptionsPage() {
                   onClick={() => {
                     const newOrder = sortOrder === "asc" ? "desc" : "asc"
                     setSortOrder(newOrder)
-                    updateSorting({ field: 'nextBillingDate', order: newOrder })
                   }}
                 >
                   {sortOrder === "asc" ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
@@ -673,7 +901,7 @@ export function SubscriptionsPage() {
             variant={currentView === "all" ? "default" : "outline"}
             onClick={() => {
               setCurrentView("all")
-              filterByStatus("all")
+              // 本地状态筛选会通过useEffect自动触发
             }}
           >
             All
@@ -682,7 +910,7 @@ export function SubscriptionsPage() {
             variant={currentView === "active" ? "default" : "outline"}
             onClick={() => {
               setCurrentView("active")
-              filterByStatus("active")
+              // 本地状态筛选会通过useEffect自动触发
             }}
           >
             Active
@@ -691,7 +919,7 @@ export function SubscriptionsPage() {
             variant={currentView === "cancelled" ? "default" : "outline"}
             onClick={() => {
               setCurrentView("cancelled")
-              filterByStatus("cancelled")
+              // 本地状态筛选会通过useEffect自动触发
             }}
           >
             Cancelled
@@ -710,7 +938,7 @@ export function SubscriptionsPage() {
                 variant="secondary"
                 className="flex items-center gap-1 px-2 py-1"
               >
-                {category?.label || categoryValue}
+                {category?.value || categoryValue}
                 <button
                   onClick={() => toggleCategoryFilter(categoryValue)}
                   className="ml-1 rounded-full hover:bg-muted-foreground/20 p-0.5"
@@ -869,7 +1097,7 @@ export function SubscriptionsPage() {
             <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-                <p className="text-lg font-medium">{operationLoading.message || '正在处理...'}</p>
+                <p className="text-lg font-medium">{operationLoading.message || 'Processing...'}</p>
               </div>
             </div>
           )}
@@ -926,6 +1154,67 @@ export function SubscriptionsPage() {
       <ExportModal
         open={showExportModal}
         onOpenChange={setShowExportModal}
+      />
+
+      {/* 订阅创建成功对话框 */}
+      {showSuccessDialog && newlyCreatedSubscription && (
+        <SubscriptionSuccessDialog
+          subscription={newlyCreatedSubscription}
+          open={showSuccessDialog}
+          onOpenChange={(open) => {
+            if (!open) {
+              setShowSuccessDialog(false)
+              setNewlyCreatedSubscription(null)
+            }
+          }}
+          onAddPayment={handleAddPaymentFromSuccess}
+          onImportPayments={handleImportPaymentsFromSuccess}
+          onViewDetails={handleViewSubscriptionFromSuccess}
+        />
+      )}
+
+      {/* 支付记录添加表单 */}
+      {showPaymentForm && selectedSubscription && (
+        <PaymentHistorySheet
+          open={showPaymentForm}
+          onOpenChange={(open) => {
+            if (!open) {
+              setShowPaymentForm(false)
+              setSelectedSubscription(null)
+            }
+          }}
+          subscriptionId={selectedSubscription.id}
+          subscriptionName={selectedSubscription.name}
+          prefilledData={{
+            amount: selectedSubscription.amount,
+            currency: selectedSubscription.currency,
+            billingCycle: selectedSubscription.billingCycle,
+            nextBillingDate: selectedSubscription.nextBillingDate || undefined
+          }}
+          onSubmit={handlePaymentSubmit as (data: {
+          subscriptionId: string
+          paymentDate: string
+          amountPaid: number
+          currency: string
+          billingPeriodStart: string
+          billingPeriodEnd: string
+          status: string
+          notes?: string
+        }) => Promise<void>}
+        />
+      )}
+
+      {/* 重复支付警告对话框 */}
+      <DuplicatePaymentConfirmDialog
+        open={showDuplicateWarning}
+        onOpenChange={(open) => {
+          if (!open) {
+            cancelDuplicatePayment()
+          }
+        }}
+        result={duplicateDetectionResult}
+        onConfirm={confirmDuplicatePayment}
+        onCancel={cancelDuplicatePayment}
       />
 
       <ConfirmDialog {...deleteConfirmation.dialogProps} />

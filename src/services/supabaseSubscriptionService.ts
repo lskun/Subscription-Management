@@ -136,6 +136,7 @@ export class SupabaseSubscriptionService {
     if (data.plan !== undefined) result.plan = data.plan
     if (data.billingCycle !== undefined) result.billing_cycle = data.billingCycle
     if (data.nextBillingDate !== undefined) result.next_billing_date = data.nextBillingDate
+    if (data.lastBillingDate !== undefined) result.last_billing_date = data.lastBillingDate
     if (data.amount !== undefined) result.amount = data.amount
     if (data.currency !== undefined) result.currency = data.currency
     if (data.paymentMethodId !== undefined) result.payment_method_id = data.paymentMethodId
@@ -173,8 +174,8 @@ export class SupabaseSubscriptionService {
       .order('name', { ascending: true })
 
     if (error) {
-      console.error('Error fetching subscriptions:', error)
-      throw new Error(`获取订阅列表失败: ${error.message}`)
+      console.error('获取订阅失败:', error)
+      throw new Error(`Failed to fetch subscription list: ${error.message}`)
     }
 
     console.log(`获取到 ${data?.length || 0} 条订阅数据`)
@@ -210,8 +211,8 @@ export class SupabaseSubscriptionService {
       if (error.code === 'PGRST116') {
         return null // 记录不存在
       }
-      console.error('Error fetching subscription:', error)
-      throw new Error(`获取订阅详情失败: ${error.message}`)
+      console.error('获取订阅失败:', error)
+      throw new Error(`Failed to fetch subscription details: ${error.message}`)
     }
 
     return data ? this.transformFromSupabase(data) : null
@@ -224,7 +225,7 @@ export class SupabaseSubscriptionService {
     // 获取当前用户ID
     const user = await useSettingsStore.getState().getCurrentUser()
     if (!user) {
-      throw new Error('用户未登录')
+      throw new Error('User not logged in')
     }
 
     // 转换数据格式
@@ -257,7 +258,7 @@ export class SupabaseSubscriptionService {
       .single()
 
     if (error) {
-      console.error('Error creating subscription:', error)
+      console.error('创建订阅失败:', error)
       throw new Error(`Failed to create subscription: ${error.message}`)
     }
 
@@ -269,10 +270,9 @@ export class SupabaseSubscriptionService {
    */
   async bulkCreateSubscriptions(subscriptionsData: Omit<FrontendSubscription, 'id' | 'lastBillingDate'>[]): Promise<FrontendSubscription[]> {
     // 获取当前用户ID
-    const { useSettingsStore } = await import('@/store/settingsStore');
     const user = await useSettingsStore.getState().getCurrentUser()
     if (!user) {
-      throw new Error('用户未登录')
+      throw new Error('User not logged in')
     }
 
     // 转换数据格式并添加用户ID
@@ -309,8 +309,8 @@ export class SupabaseSubscriptionService {
       `)
 
     if (error) {
-      console.error('Error bulk creating subscriptions:', error)
-      throw new Error(`批量创建订阅失败: ${error.message}`)
+      console.error('批量创建订阅失败:', error)
+      throw new Error(`Failed to create subscriptions: ${error.message}`)
     }
 
     return (data || []).map(item => this.transformFromSupabase(item))
@@ -328,7 +328,7 @@ export class SupabaseSubscriptionService {
       // 获取当前订阅数据以获取缺失的字段
       const currentSubscription = await this.getSubscriptionById(id)
       if (!currentSubscription) {
-        throw new Error('订阅不存在')
+        throw new Error('Subscription not found')
       }
       
       const billingCycle = updateData.billingCycle || currentSubscription.billingCycle
@@ -357,8 +357,8 @@ export class SupabaseSubscriptionService {
       .single()
 
     if (error) {
-      console.error('Error updating subscription:', error)
-      throw new Error(`更新订阅失败: ${error.message}`)
+      console.error('更新订阅失败:', error)
+      throw new Error(`Failed to update subscription: ${error.message}`)
     }
 
     return this.transformFromSupabase(data)
@@ -374,8 +374,8 @@ export class SupabaseSubscriptionService {
       .eq('id', id)
 
     if (error) {
-      console.error('Error deleting subscription:', error)
-      throw new Error(`删除订阅失败: ${error.message}`)
+      console.error('删除订阅失败:', error)
+      throw new Error(`Failed to delete subscription: ${error.message}`)
     }
   }
 
@@ -402,8 +402,8 @@ export class SupabaseSubscriptionService {
       .order('name', { ascending: true })
 
     if (error) {
-      console.error('Error searching subscriptions:', error)
-      throw new Error(`搜索订阅失败: ${error.message}`)
+      console.error('搜索订阅失败:', error)
+      throw new Error(`Failed to search subscriptions: ${error.message}`)
     }
 
     return (data || []).map(item => this.transformFromSupabase(item))
@@ -432,8 +432,8 @@ export class SupabaseSubscriptionService {
       .order('name', { ascending: true })
 
     if (error) {
-      console.error('Error fetching subscriptions by status:', error)
-      throw new Error(`按状态获取订阅失败: ${error.message}`)
+      console.error('按状态获取订阅失败:', error)
+      throw new Error(`Failed to get subscriptions by status: ${error.message}`)
     }
 
     return (data || []).map(item => this.transformFromSupabase(item))
@@ -462,8 +462,8 @@ export class SupabaseSubscriptionService {
       .order('name', { ascending: true })
 
     if (error) {
-      console.error('Error fetching subscriptions by category:', error)
-      throw new Error(`按分类获取订阅失败: ${error.message}`)
+      console.error('按分类获取订阅失败:', error)
+      throw new Error(`Failed to get subscriptions by category: ${error.message}`)
     }
 
     return (data || []).map(item => this.transformFromSupabase(item))
@@ -498,8 +498,8 @@ export class SupabaseSubscriptionService {
       .order('next_billing_date', { ascending: true })
 
     if (error) {
-      console.error('Error fetching upcoming renewals:', error)
-      throw new Error(`获取即将到期订阅失败: ${error.message}`)
+      console.error('获取即将到期订阅失败:', error)
+      throw new Error(`Failed to get upcoming renewals: ${error.message}`)
     }
 
     return (data || []).map(item => this.transformFromSupabase(item))
@@ -531,8 +531,8 @@ export class SupabaseSubscriptionService {
       .order('next_billing_date', { ascending: true })
 
     if (error) {
-      console.error('Error fetching expired subscriptions:', error)
-      throw new Error(`获取过期订阅失败: ${error.message}`)
+      console.error('获取过期订阅失败:', error)
+      throw new Error(`Failed to get expired subscriptions: ${error.message}`)
     }
 
     return (data || []).map(item => this.transformFromSupabase(item))
@@ -554,8 +554,8 @@ export class SupabaseSubscriptionService {
       .select('status, amount')
 
     if (error) {
-      console.error('Error fetching subscription stats:', error)
-      throw new Error(`获取订阅统计失败: ${error.message}`)
+      console.error('获取订阅统计失败:', error)
+      throw new Error(`Failed to get subscription stats: ${error.message}`)
     }
 
     const stats = {
@@ -609,7 +609,7 @@ export class SupabaseSubscriptionService {
       });
 
     if (error) {
-      console.error('Error renewing subscription via RPC:', error);
+      console.error('通过RPC续费订阅失败:', error);
       return { error: error.message, renewalData: null };
     }
     
@@ -626,8 +626,8 @@ export class SupabaseSubscriptionService {
       .neq('id', '00000000-0000-0000-0000-000000000000') // 删除所有记录（RLS会自动过滤用户数据）
 
     if (error) {
-      console.error('Error resetting subscriptions:', error)
-      throw new Error(`重置订阅数据失败: ${error.message}`)
+      console.error('Reset subscriptions failed:', error)
+      throw new Error(`Reset subscriptions failed: ${error.message}`)
     }
   }
 }

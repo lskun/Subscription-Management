@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { subscriptionsEdgeFunctionService, SubscriptionsRequest, SubscriptionsResponse, SubscriptionData } from '@/services/subscriptionsEdgeFunctionService'
 import { useSettingsStore } from '@/store/settingsStore'
+import { supabaseCategoriesService } from '@/services/supabaseCategoriesService'
+import { supabasePaymentMethodsService } from '@/services/supabasePaymentMethodsService'
 
 export interface SubscriptionsFilters {
   status?: 'all' | 'active' | 'cancelled'
@@ -59,11 +61,16 @@ export function useSubscriptionsData() {
       
       const edgeFunctionData = await subscriptionsEdgeFunctionService.getSubscriptionsData({
         targetCurrency,
-        includeCategories: true,
-        includePaymentMethods: true,
+        includeCategories: false,
+        includePaymentMethods: false,
         filters: requestFilters,
         sorting: requestSorting
       })
+      const categories = await supabaseCategoriesService.getAllCategories()
+      const paymentMethods = await supabasePaymentMethodsService.getAllPaymentMethods()
+
+      edgeFunctionData.categories = categories
+      edgeFunctionData.paymentMethods = paymentMethods
 
       setSubscriptionsData(edgeFunctionData)
       currentFilters.current = requestFilters
@@ -72,7 +79,7 @@ export function useSubscriptionsData() {
       console.log('✅ Subscriptions数据获取完成')
     } catch (err: any) {
       console.error('❌ Subscriptions数据获取失败:', err)
-      setError(err.message || '获取Subscriptions数据失败')
+      setError(err.message || 'Fetch Subscriptions Data Failed')
     } finally {
       setIsLoading(false)
     }

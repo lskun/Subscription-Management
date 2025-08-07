@@ -6,8 +6,8 @@ interface DashboardSubscription {
   plan?: string
   amount: number
   currency: string
-  originalAmount?: number // 原始金额
-  originalCurrency?: string // 原始货币
+  originalAmount?: number // Original amount
+  originalCurrency?: string // Original currency
   nextBillingDate: string
   billingCycle: string
   status: 'active'

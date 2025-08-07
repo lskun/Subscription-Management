@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
-import { formatCurrencyAmount } from "@/utils/currency"
+import { formatCurrencyAmount, formatWithUserCurrency } from "@/utils/currency"
 import { transformPaymentsFromApi, type PaymentRecord } from '@/utils/dataTransform'
 import { supabase } from '@/lib/supabase'
 import { formatDateDisplay } from '@/utils/date'
@@ -99,7 +99,7 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
           `)
           .gte('payment_date', startDateStr)
           .lte('payment_date', endDateStr)
-          .eq('status', 'succeeded')
+          .eq('status', 'success')
 
         if (error) throw error
 
@@ -128,7 +128,7 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
           `)
           .gte('payment_date', startDateStr)
           .lte('payment_date', endDateStr)
-          .eq('status', 'succeeded')
+          .eq('status', 'success')
 
         if (error) throw error
 
@@ -169,11 +169,11 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
 
   const getStatusColor = (status: string | null | undefined) => {
     switch (status) {
-      case 'succeeded':
+      case 'success':
         return 'bg-green-100 text-green-800'
       case 'failed':
         return 'bg-red-100 text-red-800'
-      case 'refunded':
+      case 'pending':
         return 'bg-yellow-100 text-yellow-800'
       case 'unknown':
       case null:
@@ -309,7 +309,7 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
                       </div>
                       <div className="text-right">
                         <p className="font-semibold">
-                          {formatCurrencyAmount(payment.amountPaid, payment.currency)}
+                          {formatWithUserCurrency(payment.amountPaid, payment.currency)}
                         </p>
                         <p className="text-xs text-muted-foreground">{payment.currency}</p>
                       </div>

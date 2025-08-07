@@ -67,7 +67,7 @@ class AdminUserManagementService {
     error?: string;
   }> {
     try {
-      // 验证权限
+      // Verify permissions
       const permissionCheck = await AdminMiddleware.requirePermission(ADMIN_PERMISSIONS.VIEW_USERS);
       if (!permissionCheck.success) {
         return { users: [], total: 0, error: permissionCheck.error };
@@ -130,7 +130,7 @@ class AdminUserManagementService {
         return { users: [], total: 0, error: '获取用户列表失败' };
       }
 
-      // 记录操作日志
+      // Log operation
       await adminAuthService.logOperation(
         'user_list_view',
         'user',
@@ -163,7 +163,7 @@ class AdminUserManagementService {
     error?: string;
   }> {
     try {
-      // 验证权限
+      // Verify permissions
       const permissionCheck = await AdminMiddleware.requirePermission(ADMIN_PERMISSIONS.VIEW_USERS);
       if (!permissionCheck.success) {
         return { error: permissionCheck.error };
@@ -200,7 +200,7 @@ class AdminUserManagementService {
         registrationDate: user.created_at
       };
 
-      // 记录操作日志
+      // Log operation
       await adminAuthService.logOperation(
         'user_detail_view',
         'user',
@@ -220,7 +220,7 @@ class AdminUserManagementService {
   }
 
   /**
-   * 更新用户信息
+   * Update user information
    */
   async updateUser(
     userId: string,
@@ -237,7 +237,7 @@ class AdminUserManagementService {
         return { success: false, error: permissionCheck.error };
       }
 
-      // 更新用户信息
+      // Update user information
       const { error } = await supabase.auth.admin.updateUserById(userId, updates);
 
       if (error) {
@@ -245,7 +245,7 @@ class AdminUserManagementService {
         return { success: false, error: '更新用户信息失败' };
       }
 
-      // 记录操作日志
+      // Log operation
       await adminAuthService.logOperation(
         'user_update',
         'user',
@@ -261,7 +261,7 @@ class AdminUserManagementService {
   }
 
   /**
-   * 暂停/激活用户
+   * Suspend/activate user
    */
   async toggleUserStatus(
     userId: string,
@@ -274,7 +274,7 @@ class AdminUserManagementService {
         return { success: false, error: permissionCheck.error };
       }
 
-      // 根据操作类型更新用户状态
+      // Update user status based on operation type
       const isBlocked = action === 'suspend';
       
       const { error } = await supabase

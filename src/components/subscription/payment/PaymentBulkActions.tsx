@@ -40,7 +40,7 @@ export function PaymentBulkActions({
   const [isProcessing, setIsProcessing] = useState(false)
   const { toast } = useToast()
 
-  // 全选/取消全选
+  // Select all/deselect all
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
       onSelectionChange(payments.map(p => p.id))
@@ -49,19 +49,19 @@ export function PaymentBulkActions({
     }
   }
 
-  // 批量删除确认
+  // Bulk delete confirmation
   const deleteConfirmation = useConfirmation({
-    title: "批量删除支付记录",
-    description: `确定要删除选中的 ${selectedPayments.length} 条支付记录吗？此操作无法撤销。`,
-    confirmText: "删除",
+    title: "Bulk Delete Payment Records",
+    description: `Are you sure you want to delete the selected ${selectedPayments.length} payment records? This action cannot be undone.`,
+    confirmText: "Delete",
     onConfirm: handleBulkDelete,
   })
 
-  // 批量删除
+  // Bulk delete
   async function handleBulkDelete() {
     setIsProcessing(true)
     try {
-      // 逐个删除选中的支付记录
+      // Delete selected payment records one by one
       await Promise.all(
         selectedPayments.map(id => 
           supabasePaymentHistoryService.deletePaymentHistory(id)
@@ -69,16 +69,16 @@ export function PaymentBulkActions({
       )
 
       toast({
-        title: "成功",
-        description: `已删除 ${selectedPayments.length} 条支付记录`,
+        title: "Success",
+        description: `Deleted ${selectedPayments.length} payment records`,
       })
 
-      onSelectionChange([]) // 清空选择
-      onRefresh() // 刷新列表
+      onSelectionChange([]) // Clear selection
+      onRefresh() // Refresh list
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '批量删除失败'
+      const errorMessage = error instanceof Error ? error.message : 'Bulk delete failed'
       toast({
-        title: "错误",
+        title: "Error",
         description: errorMessage,
         variant: "destructive",
       })
@@ -87,13 +87,13 @@ export function PaymentBulkActions({
     }
   }
 
-  // 批量导出
+  // Bulk export
   const handleBulkExport = () => {
     const selectedPaymentData = payments.filter(p => selectedPayments.includes(p.id))
     
     const exportData = selectedPaymentData.map(payment => ({
       id: payment.id,
-      subscriptionName: payment.subscription?.name || '未知订阅',
+      subscriptionName: payment.subscription?.name || 'Unknown Subscription',
       paymentDate: payment.paymentDate,
       amount: payment.amountPaid,
       currency: payment.currency,
@@ -115,13 +115,13 @@ export function PaymentBulkActions({
     URL.revokeObjectURL(url)
 
     toast({
-      title: "成功",
-      description: `已导出 ${selectedPayments.length} 条支付记录`,
+      title: "Success",
+      description: `Exported ${selectedPayments.length} payment records`,
     })
   }
 
-  // 批量更新状态
-  const handleBulkUpdateStatus = async (newStatus: 'succeeded' | 'failed' | 'refunded') => {
+  // Bulk update status
+  const handleBulkUpdateStatus = async (newStatus: 'success' | 'failed' | 'pending') => {
     setIsProcessing(true)
     try {
       await Promise.all(
@@ -131,22 +131,22 @@ export function PaymentBulkActions({
       )
 
       const statusNames = {
-        succeeded: '成功',
-        failed: '失败',
-        refunded: '已退款'
+        success: 'Success',
+        failed: 'Failed',
+        pending: 'Pending'
       }
 
       toast({
-        title: "成功",
-        description: `已将 ${selectedPayments.length} 条记录状态更新为${statusNames[newStatus]}`,
+        title: "Success",
+        description: `Updated ${selectedPayments.length} records status to ${statusNames[newStatus]}`,
       })
 
-      onSelectionChange([]) // 清空选择
-      onRefresh() // 刷新列表
+      onSelectionChange([]) // Clear selection
+      onRefresh() // Refresh list
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '批量更新失败'
+      const errorMessage = error instanceof Error ? error.message : 'Bulk update failed'
       toast({
-        title: "错误",
+        title: "Error",
         description: errorMessage,
         variant: "destructive",
       })
@@ -178,10 +178,10 @@ export function PaymentBulkActions({
         <span className="text-sm font-medium">
           {selectedPayments.length > 0 ? (
             <>
-              已选择 <Badge variant="secondary">{selectedPayments.length}</Badge> 条记录
+              Selected <Badge variant="secondary">{selectedPayments.length}</Badge> records
             </>
           ) : (
-            '选择记录进行批量操作'
+            'Select records for bulk operations'
           )}
         </span>
       </div>
@@ -196,7 +196,7 @@ export function PaymentBulkActions({
             className="gap-2"
           >
             <Download className="h-4 w-4" />
-            导出
+            Export
           </Button>
 
           <DropdownMenu>
@@ -208,31 +208,31 @@ export function PaymentBulkActions({
                 className="gap-2"
               >
                 <Edit className="h-4 w-4" />
-                批量操作
+                Bulk Actions
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem
-                onClick={() => handleBulkUpdateStatus('succeeded')}
+                onClick={() => handleBulkUpdateStatus('success')}
                 className="flex items-center gap-2"
               >
                 <CheckCircle className="h-4 w-4 text-green-600" />
-                标记为成功
+                Mark as Success
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => handleBulkUpdateStatus('failed')}
                 className="flex items-center gap-2"
               >
                 <XCircle className="h-4 w-4 text-red-600" />
-                标记为失败
+                Mark as Failed
               </DropdownMenuItem>
               <DropdownMenuItem
-                onClick={() => handleBulkUpdateStatus('refunded')}
+                onClick={() => handleBulkUpdateStatus('pending')}
                 className="flex items-center gap-2"
               >
                 <XCircle className="h-4 w-4 text-yellow-600" />
-                标记为退款
+                Mark as Pending
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -240,7 +240,7 @@ export function PaymentBulkActions({
                 className="flex items-center gap-2 text-destructive focus:text-destructive"
               >
                 <Trash2 className="h-4 w-4" />
-                批量删除
+                Bulk Delete
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -251,7 +251,7 @@ export function PaymentBulkActions({
             onClick={() => onSelectionChange([])}
             disabled={isProcessing}
           >
-            取消选择
+            Cancel Selection
           </Button>
         </div>
       )}

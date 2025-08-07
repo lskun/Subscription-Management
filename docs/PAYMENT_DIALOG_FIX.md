@@ -63,7 +63,7 @@ allPaymentDetails = transformPaymentsFromApi(transformedData)
 
 修复涉及的 API 请求格式：
 ```
-https://fbngjaewlcwnwrfqwygk.supabase.co/rest/v1/payment_history?select=*%2Csubscriptions%21inner%28name%2Cplan%29&payment_date=gte.2025-06-01&payment_date=lte.2025-06-30&status=eq.succeeded
+https://fbngjaewlcwnwrfqwygk.supabase.co/rest/v1/payment_history?select=*%2Csubscriptions%21inner%28name%2Cplan%29&payment_date=gte.2025-06-01&payment_date=lte.2025-06-30&status=eq.success
 ```
 
 这个请求返回的 JSON 数据中包含嵌套的 `subscriptions` 对象，现在已经正确处理。

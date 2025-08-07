@@ -69,3 +69,11 @@ export const VIEW_MODES = {
   GRID: 'grid',
   LIST: 'list',
 } as const;
+
+// Duplicate payment detection configuration
+export const DUPLICATE_PAYMENT_CONFIG = {
+  TIME_THRESHOLD_MINUTES: 5, // 短时间间隔阈值（分钟）
+  AMOUNT_SIMILARITY_THRESHOLD: 0.95, // 金额相似度阈值
+  ENABLE_STRICT_MODE: true, // 严格模式开关
+  ALLOW_FORCE_ADD: true // 允许强制添加
+} as const;

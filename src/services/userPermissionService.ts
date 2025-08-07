@@ -2,37 +2,37 @@ import { supabase } from '@/lib/supabase'
 import type { User } from '@supabase/supabase-js'
 
 /**
- * 用户权限和配额管理服务
+ * User permission and quota management service
  */
 
-// 功能权限枚举
+// Feature permission enumeration
 export enum Permission {
-  // 基础功能
+  // Basic features
   VIEW_SUBSCRIPTIONS = 'view_subscriptions',
   CREATE_SUBSCRIPTIONS = 'create_subscriptions',
   EDIT_SUBSCRIPTIONS = 'edit_subscriptions',
   DELETE_SUBSCRIPTIONS = 'delete_subscriptions',
   
-  // 分析功能
+  // Analytics features
   VIEW_ANALYTICS = 'view_analytics',
   EXPORT_DATA = 'export_data',
   IMPORT_DATA = 'import_data',
   
-  // 高级功能
+  // Advanced features
   CUSTOM_CATEGORIES = 'custom_categories',
   CUSTOM_PAYMENT_METHODS = 'custom_payment_methods',
   BULK_OPERATIONS = 'bulk_operations',
   
-  // API访问
+  // API access
   API_ACCESS = 'api_access',
   WEBHOOK_ACCESS = 'webhook_access',
   
-  // 管理功能
+  // Admin features
   ADMIN_ACCESS = 'admin_access',
   USER_MANAGEMENT = 'user_management'
 }
 
-// 配额类型枚举
+// Quota type enumeration
 export enum QuotaType {
   MAX_SUBSCRIPTIONS = 'max_subscriptions',
   API_CALLS_PER_HOUR = 'api_calls_per_hour',
@@ -42,7 +42,7 @@ export enum QuotaType {
   STORAGE_SIZE_MB = 'storage_size_mb'
 }
 
-// 用户订阅计划信息
+// User subscription plan information
 export interface UserSubscriptionPlan {
   id: string
   name: string
@@ -52,7 +52,7 @@ export interface UserSubscriptionPlan {
   quotas: Record<QuotaType, number>
 }
 
-// 配额使用情况
+// Quota usage information
 export interface QuotaUsage {
   type: QuotaType
   used: number
@@ -61,7 +61,7 @@ export interface QuotaUsage {
   resetDate?: Date
 }
 
-// 权限检查结果
+// Permission check result
 export interface PermissionCheckResult {
   allowed: boolean
   reason?: string
@@ -70,7 +70,7 @@ export interface PermissionCheckResult {
 
 export class UserPermissionService {
   /**
-   * 获取用户订阅计划信息
+   * Get user subscription plan information
    */
   static async getUserSubscriptionPlan(userId?: string): Promise<UserSubscriptionPlan | null> {
     try {
@@ -79,10 +79,10 @@ export class UserPermissionService {
     const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
-      // 获取用户当前订阅计划
+      // Get user's current subscription plan
       const { data: userSubscription, error: subscriptionError } = await supabase
         .from('user_subscriptions')
         .select(`
@@ -99,7 +99,7 @@ export class UserPermissionService {
         .single()
 
       if (subscriptionError) {
-        console.error('获取用户订阅计划失败:', subscriptionError)
+        console.error('Failed to get user subscription plan:', subscriptionError)
         return null
       }
 
@@ -108,7 +108,7 @@ export class UserPermissionService {
         return null
       }
 
-      // 解析权限和配额
+      // Parse permissions and quotas
       const permissions = this.parsePermissions(plan.features)
       const quotas = this.parseQuotas(plan.limits)
 
@@ -121,13 +121,13 @@ export class UserPermissionService {
         quotas
       }
     } catch (error) {
-      console.error('获取用户订阅计划失败:', error)
+      console.error('Failed to get user subscription plan:', error)
       return null
     }
   }
 
   /**
-   * 检查用户是否有特定权限
+   * Check if user has specific permission
    */
   static async hasPermission(
     permission: Permission,
@@ -139,7 +139,7 @@ export class UserPermissionService {
       if (!plan) {
         return {
           allowed: false,
-          reason: '无法获取用户订阅计划',
+          reason: 'Unable to get user subscription plan',
           upgradeRequired: true
         }
       }
@@ -148,21 +148,21 @@ export class UserPermissionService {
       
       return {
         allowed: hasPermission,
-        reason: hasPermission ? undefined : '当前订阅计划不支持此功能',
+        reason: hasPermission ? undefined : 'Current subscription plan does not support this feature',
         upgradeRequired: !hasPermission
       }
     } catch (error) {
-      console.error('检查用户权限失败:', error)
+      console.error('Failed to check user permission:', error)
       return {
         allowed: false,
-        reason: '权限检查失败',
+        reason: 'Permission check failed',
         upgradeRequired: false
       }
     }
   }
 
   /**
-   * 检查用户配额使用情况
+   * Check user quota usage
    */
   static async checkQuota(
     quotaType: QuotaType,
@@ -174,7 +174,7 @@ export class UserPermissionService {
     const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
       const plan = await this.getUserSubscriptionPlan(targetUserId)
@@ -188,7 +188,7 @@ export class UserPermissionService {
         return null
       }
 
-      // 获取当前使用量
+      // Get current usage
       const used = await this.getCurrentUsage(quotaType, targetUserId)
       
       return {
@@ -199,13 +199,13 @@ export class UserPermissionService {
         resetDate: this.getQuotaResetDate(quotaType)
       }
     } catch (error) {
-      console.error('检查用户配额失败:', error)
+      console.error('Failed to check user quota:', error)
       return null
     }
   }
 
   /**
-   * 检查是否可以执行操作（权限+配额）
+   * Check if action can be performed (permission + quota)
    */
   static async canPerformAction(
     permission: Permission,
@@ -213,20 +213,20 @@ export class UserPermissionService {
     userId?: string
   ): Promise<PermissionCheckResult> {
     try {
-      // 检查权限
+      // Check permission
       const permissionResult = await this.hasPermission(permission, userId)
       if (!permissionResult.allowed) {
         return permissionResult
       }
 
-      // 如果需要检查配额
+      // Check quota if needed
       if (quotaType) {
         const quotaUsage = await this.checkQuota(quotaType, userId)
         
         if (quotaUsage && quotaUsage.limit > 0 && quotaUsage.used >= quotaUsage.limit) {
           return {
             allowed: false,
-            reason: `已达到${this.getQuotaDisplayName(quotaType)}限制 (${quotaUsage.used}/${quotaUsage.limit})`,
+            reason: `Reached ${this.getQuotaDisplayName(quotaType)} limit (${quotaUsage.used}/${quotaUsage.limit})`,
             upgradeRequired: true
           }
         }
@@ -236,16 +236,16 @@ export class UserPermissionService {
         allowed: true
       }
     } catch (error) {
-      console.error('检查操作权限失败:', error)
+      console.error('Failed to check action permission:', error)
       return {
         allowed: false,
-        reason: '权限检查失败'
+        reason: 'Permission check failed'
       }
     }
   }
 
   /**
-   * 记录配额使用
+   * Record quota usage
    */
   static async recordQuotaUsage(
     quotaType: QuotaType,
@@ -258,10 +258,10 @@ export class UserPermissionService {
     const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
-      // 记录使用情况到数据库
+      // Record usage to database
       const { error } = await supabase
         .from('user_quota_usage')
         .insert({
@@ -272,15 +272,15 @@ export class UserPermissionService {
         })
 
       if (error) {
-        console.error('记录配额使用失败:', error)
+        console.error('Failed to record quota usage:', error)
       }
     } catch (error) {
-      console.error('记录配额使用异常:', error)
+      console.error('Error recording quota usage:', error)
     }
   }
 
   /**
-   * 获取所有配额使用情况
+   * Get all quota usage
    */
   static async getAllQuotaUsage(userId?: string): Promise<QuotaUsage[]> {
     try {
@@ -301,31 +301,31 @@ export class UserPermissionService {
 
       return quotaUsages
     } catch (error) {
-      console.error('获取配额使用情况失败:', error)
+      console.error('Failed to get quota usage:', error)
       return []
     }
   }
 
   /**
-   * 获取用户权限列表
+   * Get user permission list
    */
   static async getUserPermissions(userId?: string): Promise<Permission[]> {
     try {
       const plan = await this.getUserSubscriptionPlan(userId)
       return plan?.permissions || []
     } catch (error) {
-      console.error('获取用户权限失败:', error)
+      console.error('Failed to get user permissions:', error)
       return []
     }
   }
 
   /**
-   * 解析计划功能为权限列表
+   * Parse plan features to permission list
    */
   private static parsePermissions(features: Record<string, any>): Permission[] {
     const permissions: Permission[] = []
 
-    // 基础权限（所有计划都有）
+    // Basic permissions (all plans have)
     permissions.push(
       Permission.VIEW_SUBSCRIPTIONS,
       Permission.CREATE_SUBSCRIPTIONS,
@@ -334,7 +334,7 @@ export class UserPermissionService {
       Permission.VIEW_ANALYTICS
     )
 
-    // 根据功能特性添加权限
+    // Add permissions based on feature characteristics
     if (features.data_export) {
       permissions.push(Permission.EXPORT_DATA)
     }
@@ -371,12 +371,12 @@ export class UserPermissionService {
   }
 
   /**
-   * 解析计划限制为配额映射
+   * Parse plan limits to quota mapping
    */
   private static parseQuotas(limits: Record<string, any>): Record<QuotaType, number> {
     const quotas: Partial<Record<QuotaType, number>> = {}
 
-    // 映射限制到配额类型
+    // Map limits to quota types
     if (limits.max_subscriptions !== undefined) {
       quotas[QuotaType.MAX_SUBSCRIPTIONS] = limits.max_subscriptions
     }
@@ -405,7 +405,7 @@ export class UserPermissionService {
   }
 
   /**
-   * 获取当前配额使用量
+   * TODO Get current quota usage
    */
   private static async getCurrentUsage(
     quotaType: QuotaType,
@@ -423,37 +423,37 @@ export class UserPermissionService {
           return subscriptionCount || 0
 
         case QuotaType.API_CALLS_PER_HOUR:
-          // 这里需要实现API调用记录的查询
-          // 暂时返回0，实际实现需要查询API调用日志
+          // Need to implement API call record query here
+          // Temporarily return 0, actual implementation needs to query API call logs
           return 0
 
         case QuotaType.API_CALLS_PER_DAY:
-          // 这里需要实现API调用记录的查询
+          // Need to implement API call record query here
           return 0
 
         case QuotaType.EXPORT_PER_MONTH:
-          // 这里需要实现导出记录的查询
+          // Need to implement export record query here
           return 0
 
         case QuotaType.IMPORT_PER_MONTH:
-          // 这里需要实现导入记录的查询
+          // Need to implement import record query here
           return 0
 
         case QuotaType.STORAGE_SIZE_MB:
-          // 这里需要实现存储使用量的查询
+          // Need to implement storage usage query here
           return 0
 
         default:
           return 0
       }
     } catch (error) {
-      console.error('获取配额使用量失败:', error)
+      console.error('Failed to get quota usage:', error)
       return 0
     }
   }
 
   /**
-   * 获取配额重置日期
+   * Get quota reset date
    */
   private static getQuotaResetDate(quotaType: QuotaType): Date | undefined {
     const now = new Date()
@@ -483,23 +483,23 @@ export class UserPermissionService {
   }
 
   /**
-   * 获取配额显示名称
+   * Get quota display name
    */
   private static getQuotaDisplayName(quotaType: QuotaType): string {
     const displayNames = {
-      [QuotaType.MAX_SUBSCRIPTIONS]: '最大订阅数量',
-      [QuotaType.API_CALLS_PER_HOUR]: '每小时API调用',
-      [QuotaType.API_CALLS_PER_DAY]: '每日API调用',
-      [QuotaType.EXPORT_PER_MONTH]: '每月导出次数',
-      [QuotaType.IMPORT_PER_MONTH]: '每月导入次数',
-      [QuotaType.STORAGE_SIZE_MB]: '存储空间'
+      [QuotaType.MAX_SUBSCRIPTIONS]: 'Maximum Subscriptions',
+      [QuotaType.API_CALLS_PER_HOUR]: 'API Calls Per Hour',
+      [QuotaType.API_CALLS_PER_DAY]: 'Daily API Calls',
+      [QuotaType.EXPORT_PER_MONTH]: 'Monthly Exports',
+      [QuotaType.IMPORT_PER_MONTH]: 'Monthly Imports',
+      [QuotaType.STORAGE_SIZE_MB]: 'Storage Space'
     }
 
     return displayNames[quotaType] || quotaType
   }
 
   /**
-   * 权限验证中间件（用于组件）
+   * Permission validation middleware (for components)
    */
   static createPermissionGuard(permission: Permission, quotaType?: QuotaType) {
     return async (userId?: string): Promise<PermissionCheckResult> => {

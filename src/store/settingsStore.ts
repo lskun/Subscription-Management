@@ -260,6 +260,16 @@ export const useSettingsStore = create<SettingsState>()(
               _fetchPromise: null
             })
 
+            // 用户登录后自动获取汇率数据，确保汇率数据完整
+            try {
+              console.log('🔄 自动获取汇率数据')
+              await get().fetchExchangeRates()
+              console.log('✅ 汇率数据获取成功')
+            } catch (exchangeRateError: any) {
+              // 汇率获取失败不应该影响用户设置的获取
+              logger.warn('⚠️ 汇率数据获取失败，但不影响用户设置:', exchangeRateError)
+            }
+
           } catch (error: any) {
             logger.error('❌ 获取用户设置失败:', error)
 
@@ -421,6 +431,7 @@ export const useSettingsStore = create<SettingsState>()(
           // 将汇率数组转换为键值对映射
           const rateMap = SupabaseExchangeRateService.ratesToMap(rates);
 
+          console.debug('获取到的汇率数据:', rateMap)
           // 更新本地汇率缓存和最后更新时间
           set({
             exchangeRates: rateMap,

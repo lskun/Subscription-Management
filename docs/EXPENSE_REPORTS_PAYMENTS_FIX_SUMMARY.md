@@ -78,7 +78,7 @@ try {
     .from('payment_history')
     .select('id')
     .eq('user_id', user.id)
-    .eq('status', 'succeeded')
+    .eq('status', 'success')
     .gte('payment_date', quarterStartStr)
     .lte('payment_date', quarterEndStr);
   
@@ -124,7 +124,7 @@ try {
     .from('payment_history')
     .select('id')
     .eq('user_id', user.id)
-    .eq('status', 'succeeded')
+    .eq('status', 'success')
     .gte('payment_date', yearStartStr)
     .lte('payment_date', yearEndStr);
   

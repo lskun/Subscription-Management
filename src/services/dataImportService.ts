@@ -6,10 +6,10 @@ import { supabasePaymentMethodsService } from './supabasePaymentMethodsService'
 import { parseCSVToSubscriptions } from '@/lib/subscription-utils'
 import { SubscriptionImportData } from '@/components/imports/types'
 
-// 导入进度回调类型
+// Import progress callback type
 export type ImportProgressCallback = (progress: number, message: string) => void
 
-// 导入结果类型
+// Import result type
 export interface ImportResult {
   success: boolean
   imported: number
@@ -24,15 +24,15 @@ export interface ImportResult {
   }
 }
 
-// 重复检测选项
+// Duplicate detection options
 export interface DuplicateDetectionOptions {
   checkByName: boolean
   checkByNameAndAmount: boolean
   checkByWebsite: boolean
-  skipDuplicates: boolean // true: 跳过重复项, false: 更新重复项
+  skipDuplicates: boolean // true: skip duplicates, false: update duplicates
 }
 
-// 导入选项
+// Import options
 export interface ImportOptions {
   duplicateDetection: DuplicateDetectionOptions
   validateData: boolean
@@ -41,7 +41,7 @@ export interface ImportOptions {
   onProgress?: ImportProgressCallback
 }
 
-// 默认导入选项
+// Default import options
 const DEFAULT_IMPORT_OPTIONS: ImportOptions = {
   duplicateDetection: {
     checkByName: true,
@@ -55,12 +55,12 @@ const DEFAULT_IMPORT_OPTIONS: ImportOptions = {
 }
 
 /**
- * 数据导入服务
- * 提供增强的数据导入功能，支持多租户、重复检测、数据验证等
+ * Data import service
+ * Provides enhanced data import functionality, supports multi-tenancy, duplicate detection, data validation, etc.
  */
 export class DataImportService {
   /**
-   * 验证用户权限
+   * Validate user permission
    */
   private async validateUserPermission(): Promise<string> {
     const { useSettingsStore } = await import('@/store/settingsStore');
@@ -68,63 +68,63 @@ export class DataImportService {
     const error = null;
     
     if (error || !user) {
-      throw new Error('用户未登录，无法导入数据')
+      throw new Error('User not logged in, cannot import data')
     }
     
     return user.id
   }
 
   /**
-   * 验证订阅数据
+   * Validate subscription data
    */
   private validateSubscriptionData(subscription: SubscriptionImportData): string[] {
     const errors: string[] = []
     
-    // 必填字段验证
+    // Required field validation
     if (!subscription.name?.trim()) {
-      errors.push('订阅名称不能为空')
+      errors.push('Subscription name cannot be empty')
     }
     
     if (!subscription.amount || subscription.amount <= 0) {
-      errors.push('订阅金额必须大于0')
+      errors.push('Subscription amount must be greater than 0')
     }
     
     if (!subscription.currency?.trim()) {
-      errors.push('货币类型不能为空')
+      errors.push('Currency type cannot be empty')
     }
     
     if (!subscription.billingCycle) {
-      errors.push('计费周期不能为空')
+      errors.push('Billing cycle cannot be empty')
     } else if (!['monthly', 'yearly', 'quarterly'].includes(subscription.billingCycle)) {
-      errors.push('计费周期必须是 monthly、yearly 或 quarterly')
+      errors.push('Billing cycle must be monthly, yearly, or quarterly')
     }
     
     if (!subscription.nextBillingDate) {
-      errors.push('下次计费日期不能为空')
+      errors.push('Next billing date cannot be empty')
     } else {
-      // 验证日期格式
+      // Validate date format
       const date = new Date(subscription.nextBillingDate)
       if (isNaN(date.getTime())) {
-        errors.push('下次计费日期格式无效')
+        errors.push('Next billing date format is invalid')
       }
     }
     
     if (!subscription.status) {
-      errors.push('订阅状态不能为空')
+      errors.push('Subscription status cannot be empty')
     } else if (!['active', 'trial', 'cancelled'].includes(subscription.status)) {
-      errors.push('订阅状态必须是 active、trial 或 cancelled')
+      errors.push('Subscription status must be active, trial, or cancelled')
     }
     
-    // 可选字段验证
+    // Optional field validation
     if (subscription.renewalType && !['auto', 'manual'].includes(subscription.renewalType)) {
-      errors.push('续费类型必须是 auto 或 manual')
+      errors.push('Renewal type must be auto or manual')
     }
     
     if (subscription.website && subscription.website.trim()) {
       try {
         new URL(subscription.website)
       } catch {
-        errors.push('网站URL格式无效')
+        errors.push('Website URL format is invalid')
       }
     }
     
@@ -132,7 +132,7 @@ export class DataImportService {
   }
 
   /**
-   * 检测重复订阅
+   * Detect duplicate subscriptions
    */
   private async detectDuplicates(
     subscriptions: SubscriptionImportData[],
@@ -147,29 +147,29 @@ export class DataImportService {
       let duplicateReason = ''
       
       for (const existing of existingSubscriptions) {
-        // 按名称检查
+        // Check by name
         if (options.checkByName && 
             subscription.name.toLowerCase().trim() === existing.name.toLowerCase().trim()) {
           isDuplicate = true
-          duplicateReason = `名称重复: ${subscription.name}`
+          duplicateReason = `Name duplicate: ${subscription.name}`
           break
         }
         
-        // 按名称和金额检查
+        // Check by name and amount
         if (options.checkByNameAndAmount &&
             subscription.name.toLowerCase().trim() === existing.name.toLowerCase().trim() &&
             Math.abs(subscription.amount - existing.amount) < 0.01) {
           isDuplicate = true
-          duplicateReason = `名称和金额重复: ${subscription.name} (${subscription.amount})`
+          duplicateReason = `Name and amount duplicate: ${subscription.name} (${subscription.amount})`
           break
         }
         
-        // 按网站检查
+        // Check by website
         if (options.checkByWebsite &&
             subscription.website && existing.website &&
             subscription.website.toLowerCase().trim() === existing.website.toLowerCase().trim()) {
           isDuplicate = true
-          duplicateReason = `网站重复: ${subscription.website}`
+          duplicateReason = `Website duplicate: ${subscription.website}`
           break
         }
       }
@@ -177,7 +177,7 @@ export class DataImportService {
       if (isDuplicate) {
         duplicates.push(duplicateReason)
         if (!options.skipDuplicates) {
-          // 如果不跳过重复项，仍然添加到导入列表中（后续会更新）
+          // If not skipping duplicates, still add to import list (will be updated later)
           uniqueSubscriptions.push(subscription)
         }
       } else {
@@ -189,18 +189,18 @@ export class DataImportService {
   }
 
   /**
-   * 确保分类存在
+   * Ensure categories exist
    */
   private async ensureCategoriesExist(subscriptions: SubscriptionImportData[]): Promise<Map<string, string>> {
     const categoryMap = new Map<string, string>() // value -> id
     const existingCategories = await supabaseCategoriesService.getAllCategories()
     
-    // 建立现有分类的映射
+    // Build mapping of existing categories
     for (const category of existingCategories) {
       categoryMap.set(category.value, category.id)
     }
     
-    // 检查需要创建的新分类
+    // Check for new categories that need to be created
     const newCategoryValues = new Set<string>()
     for (const subscription of subscriptions) {
       if (subscription.category?.value && !categoryMap.has(subscription.category.value)) {
@@ -208,17 +208,17 @@ export class DataImportService {
       }
     }
     
-    // 创建新分类
+    // Create new categories
     for (const value of newCategoryValues) {
       try {
         const newCategory = await supabaseCategoriesService.createCategory({
           value,
-          label: value.charAt(0).toUpperCase() + value.slice(1) // 首字母大写
+          label: value.charAt(0).toUpperCase() + value.slice(1) // Capitalize first letter
         })
         categoryMap.set(value, newCategory.id)
       } catch (error) {
         console.warn(`Failed to create category ${value}:`, error)
-        // 使用默认分类
+        // Use default category
         const defaultCategory = existingCategories.find(c => c.value === 'other')
         if (defaultCategory) {
           categoryMap.set(value, defaultCategory.id)
@@ -230,18 +230,18 @@ export class DataImportService {
   }
 
   /**
-   * 确保支付方式存在
+   * Ensure payment methods exist
    */
   private async ensurePaymentMethodsExist(subscriptions: SubscriptionImportData[]): Promise<Map<string, string>> {
     const paymentMethodMap = new Map<string, string>() // value -> id
     const existingPaymentMethods = await supabasePaymentMethodsService.getAllPaymentMethods()
     
-    // 建立现有支付方式的映射
+    // Build mapping of existing payment methods
     for (const method of existingPaymentMethods) {
       paymentMethodMap.set(method.value, method.id)
     }
     
-    // 检查需要创建的新支付方式
+    // Check for new payment methods that need to be created
     const newPaymentMethodValues = new Set<string>()
     for (const subscription of subscriptions) {
       if (subscription.paymentMethod?.value && !paymentMethodMap.has(subscription.paymentMethod.value)) {
@@ -249,17 +249,17 @@ export class DataImportService {
       }
     }
     
-    // 创建新支付方式
+    // Create new payment methods
     for (const value of newPaymentMethodValues) {
       try {
         const newPaymentMethod = await supabasePaymentMethodsService.createPaymentMethod({
           value,
-          label: value.charAt(0).toUpperCase() + value.slice(1) // 首字母大写
+          label: value.charAt(0).toUpperCase() + value.slice(1) // Capitalize first letter
         })
         paymentMethodMap.set(value, newPaymentMethod.id)
       } catch (error) {
         console.warn(`Failed to create payment method ${value}:`, error)
-        // 使用默认支付方式
+        // Use default payment method
         const defaultMethod = existingPaymentMethods.find(m => m.value === 'credit_card')
         if (defaultMethod) {
           paymentMethodMap.set(value, defaultMethod.id)
@@ -271,7 +271,7 @@ export class DataImportService {
   }
 
   /**
-   * 处理订阅数据的ID映射
+   * Handle ID mapping for subscription data
    */
   private mapSubscriptionIds(
     subscriptions: SubscriptionImportData[],
@@ -279,7 +279,7 @@ export class DataImportService {
     paymentMethodMap: Map<string, string>
   ): SubscriptionImportData[] {
     return subscriptions.map(subscription => {
-      // 映射分类ID
+      // Map category ID
       if (subscription.category?.value) {
         const categoryId = categoryMap.get(subscription.category.value)
         if (categoryId) {
@@ -287,7 +287,7 @@ export class DataImportService {
         }
       }
       
-      // 映射支付方式ID
+      // Map payment method ID
       if (subscription.paymentMethod?.value) {
         const paymentMethodId = paymentMethodMap.get(subscription.paymentMethod.value)
         if (paymentMethodId) {
@@ -295,7 +295,7 @@ export class DataImportService {
         }
       }
       
-      // 设置默认值
+      // Set default values
       if (!subscription.categoryId) {
         const defaultCategory = Array.from(categoryMap.entries()).find(([value]) => value === 'other')
         subscription.categoryId = defaultCategory?.[1] || '1'
@@ -306,7 +306,7 @@ export class DataImportService {
         subscription.paymentMethodId = defaultPaymentMethod?.[1] || '1'
       }
       
-      // 设置默认的续费类型
+      // Set default renewal type
       if (!subscription.renewalType) {
         subscription.renewalType = 'manual'
       }
@@ -316,7 +316,7 @@ export class DataImportService {
   }
 
   /**
-   * 解析CSV文件内容
+   * Parse CSV file content
    */
   async parseCSVFile(content: string): Promise<{
     subscriptions: SubscriptionImportData[]
@@ -331,13 +331,13 @@ export class DataImportService {
     } catch (error: any) {
       return {
         subscriptions: [],
-        errors: [`CSV解析失败: ${error.message}`]
+        errors: [`CSV parsing failed: ${error.message}`]
       }
     }
   }
 
   /**
-   * 解析JSON文件内容
+   * Parse JSON file content
    */
   async parseJSONFile(content: string): Promise<{
     subscriptions: SubscriptionImportData[]
@@ -348,27 +348,27 @@ export class DataImportService {
       const errors: string[] = []
       let subscriptions: SubscriptionImportData[] = []
       
-      // 检查不同的JSON格式
+      // Check different JSON formats
       if (data.subscriptions && Array.isArray(data.subscriptions)) {
-        // 导出的完整格式
+        // Complete export format
         subscriptions = data.subscriptions
       } else if (data.state?.subscriptions && Array.isArray(data.state.subscriptions)) {
-        // Zustand状态格式
+        // Zustand state format
         subscriptions = data.state.subscriptions
       } else if (Array.isArray(data)) {
-        // 直接的订阅数组
+        // Direct subscription array
         subscriptions = data
       } else {
-        errors.push('无法识别的JSON格式，请确保包含订阅数据')
+        errors.push('Unrecognized JSON format, please ensure it contains subscription data')
         return { subscriptions: [], errors }
       }
       
-      // 验证和转换数据格式
+      // Validate and convert data format
       const validSubscriptions: SubscriptionImportData[] = []
       subscriptions.forEach((sub: any, index: number) => {
         try {
           const subscription: SubscriptionImportData = {
-            name: sub.name || `未知订阅 ${index + 1}`,
+            name: sub.name || `Unknown Subscription ${index + 1}`,
             plan: sub.plan || 'Basic',
             billingCycle: sub.billingCycle || 'monthly',
             nextBillingDate: sub.nextBillingDate || new Date().toISOString().split('T')[0],
@@ -382,13 +382,13 @@ export class DataImportService {
             renewalType: sub.renewalType || 'manual',
             notes: sub.notes || '',
             website: sub.website || '',
-            // 保留关联数据用于ID映射
+            // Preserve related data for ID mapping
             category: sub.category,
             paymentMethod: sub.paymentMethod
           }
           validSubscriptions.push(subscription)
         } catch (error: any) {
-          errors.push(`第${index + 1}条记录格式错误: ${error.message}`)
+          errors.push(`Record ${index + 1} format error: ${error.message}`)
         }
       })
       
@@ -396,13 +396,13 @@ export class DataImportService {
     } catch (error: any) {
       return {
         subscriptions: [],
-        errors: [`JSON解析失败: ${error.message}`]
+        errors: [`JSON parsing failed: ${error.message}`]
       }
     }
   }
 
   /**
-   * 导入订阅数据
+   * Import subscription data
    */
   async importSubscriptions(
     subscriptions: SubscriptionImportData[],
@@ -432,15 +432,15 @@ export class DataImportService {
     }
     
     try {
-      updateProgress(1, '验证导入数据...')
+      updateProgress(1, 'Validating import data...')
       
-      // 数据验证
+      // Data validation
       if (finalOptions.validateData) {
         const validationErrors: string[] = []
         subscriptions.forEach((subscription, index) => {
           const errors = this.validateSubscriptionData(subscription)
           if (errors.length > 0) {
-            validationErrors.push(`第${index + 1}条记录: ${errors.join(', ')}`)
+            validationErrors.push(`Record ${index + 1}: ${errors.join(', ')}`)
           }
         })
         
@@ -450,9 +450,9 @@ export class DataImportService {
         }
       }
       
-      updateProgress(2, '检测重复数据...')
+      updateProgress(2, 'Detecting duplicate data...')
       
-      // 重复检测
+      // Duplicate detection
       const { duplicates, uniqueSubscriptions } = await this.detectDuplicates(
         subscriptions,
         finalOptions.duplicateDetection
@@ -465,34 +465,34 @@ export class DataImportService {
         return result
       }
       
-      updateProgress(3, '处理分类数据...')
+      updateProgress(3, 'Processing category data...')
       
-      // 确保分类存在
+      // Ensure categories exist
       let categoryMap = new Map<string, string>()
       if (finalOptions.createMissingCategories) {
         categoryMap = await this.ensureCategoriesExist(uniqueSubscriptions)
       }
       
-      updateProgress(4, '处理支付方式...')
+      updateProgress(4, 'Processing payment methods...')
       
-      // 确保支付方式存在
+      // Ensure payment methods exist
       let paymentMethodMap = new Map<string, string>()
       if (finalOptions.createMissingPaymentMethods) {
         paymentMethodMap = await this.ensurePaymentMethodsExist(uniqueSubscriptions)
       }
       
-      updateProgress(5, '映射数据关系...')
+      updateProgress(5, 'Mapping data relationships...')
       
-      // 处理ID映射
+      // Handle ID mapping
       const mappedSubscriptions = this.mapSubscriptionIds(
         uniqueSubscriptions,
         categoryMap,
         paymentMethodMap
       )
       
-      updateProgress(6, '导入订阅数据...')
+      updateProgress(6, 'Importing subscription data...')
       
-      // 批量导入订阅
+      // Bulk import subscriptions
       const importedSubscriptions = await supabaseSubscriptionService.bulkCreateSubscriptions(
         mappedSubscriptions
       )
@@ -501,18 +501,18 @@ export class DataImportService {
       result.details.subscriptions = importedSubscriptions.length
       result.success = true
       
-      updateProgress(10, '导入完成')
+      updateProgress(10, 'Import completed')
       
     } catch (error: any) {
       console.error('Import failed:', error)
-      result.errors.push(`导入失败: ${error.message}`)
+      result.errors.push(`Import failed: ${error.message}`)
     }
     
     return result
   }
 
   /**
-   * 从文件导入数据
+   * Import data from file
    */
   async importFromFile(
     file: File,
@@ -521,11 +521,11 @@ export class DataImportService {
     const finalOptions = { ...DEFAULT_IMPORT_OPTIONS, ...options }
     
     try {
-      finalOptions.onProgress?.(10, '读取文件内容...')
+      finalOptions.onProgress?.(10, 'Reading file content...')
       
       const content = await this.readFileContent(file)
       
-      finalOptions.onProgress?.(20, '解析文件数据...')
+      finalOptions.onProgress?.(20, 'Parsing file data...')
       
       let parseResult: { subscriptions: SubscriptionImportData[], errors: string[] }
       
@@ -538,7 +538,7 @@ export class DataImportService {
           success: false,
           imported: 0,
           skipped: 0,
-          errors: ['不支持的文件格式，请上传CSV或JSON文件'],
+          errors: ['Unsupported file format, please upload CSV or JSON files'],
           duplicates: [],
           details: { subscriptions: 0, paymentHistory: 0, categories: 0, paymentMethods: 0 }
         }
@@ -555,7 +555,7 @@ export class DataImportService {
         }
       }
       
-      // 调整进度回调，为导入过程预留80%的进度
+      // Adjust progress callback, reserve 80% progress for import process
       const adjustedOptions = {
         ...finalOptions,
         onProgress: (progress: number, message: string) => {
@@ -571,7 +571,7 @@ export class DataImportService {
         success: false,
         imported: 0,
         skipped: 0,
-        errors: [`文件处理失败: ${error.message}`],
+        errors: [`File processing failed: ${error.message}`],
         duplicates: [],
         details: { subscriptions: 0, paymentHistory: 0, categories: 0, paymentMethods: 0 }
       }
@@ -579,7 +579,7 @@ export class DataImportService {
   }
 
   /**
-   * 读取文件内容
+   * Read file content
    */
   private readFileContent(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
@@ -591,7 +591,7 @@ export class DataImportService {
       }
       
       reader.onerror = () => {
-        reject(new Error('文件读取失败'))
+        reject(new Error('File reading failed'))
       }
       
       reader.readAsText(file, 'utf-8')
@@ -599,7 +599,7 @@ export class DataImportService {
   }
 
   /**
-   * 获取导入预览信息
+   * Get import preview information
    */
   async getImportPreview(file: File): Promise<{
     fileName: string
@@ -615,7 +615,7 @@ export class DataImportService {
       
       if (file.name.endsWith('.csv')) {
         const lines = content.split('\n').filter(line => line.trim())
-        estimatedRecords = Math.max(0, lines.length - 1) // 减去标题行
+        estimatedRecords = Math.max(0, lines.length - 1) // Subtract header row
       } else if (file.name.endsWith('.json')) {
         try {
           const data = JSON.parse(content)
@@ -627,10 +627,10 @@ export class DataImportService {
             estimatedRecords = data.length
           }
         } catch {
-          errors.push('JSON格式无效')
+          errors.push('Invalid JSON format')
         }
       } else {
-        errors.push('不支持的文件格式')
+        errors.push('Unsupported file format')
       }
       
       return {
@@ -646,11 +646,11 @@ export class DataImportService {
         fileSize: (file.size / 1024).toFixed(1) + ' KB',
         estimatedRecords: 0,
         format: 'Unknown',
-        errors: [`文件预览失败: ${error.message}`]
+        errors: [`File preview failed: ${error.message}`]
       }
     }
   }
 }
 
-// 导出单例实例
+// Export singleton instance
 export const dataImportService = new DataImportService()

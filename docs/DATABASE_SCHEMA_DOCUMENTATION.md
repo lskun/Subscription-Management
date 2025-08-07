@@ -96,7 +96,7 @@
 - **用途**: 支付历史表，存储用户的支付记录
 - **主要字段**: id, user_id, subscription_id, payment_date, amount_paid, currency, billing_period_start, billing_period_end, status
 - **关系**: 多对一关联 auth.users, subscriptions
-- **约束**: status IN ('succeeded', 'failed', 'refunded')
+- **约束**: status IN ('success', 'failed', 'pending')
 - **索引**: idx_payment_history_user_id, idx_payment_history_subscription_id, idx_payment_history_date
 
 ### 汇率管理相关表

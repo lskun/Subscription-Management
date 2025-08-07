@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { PaymentHistoryRecord, supabasePaymentHistoryService } from "@/services/supabasePaymentHistoryService"
 import { PaymentHistorySheet } from "./PaymentHistorySheet"
@@ -11,18 +11,30 @@ import { format } from "date-fns"
 import { PaymentHistoryHeader } from "./payment/PaymentHistoryHeader"
 import { PaymentListItem } from "./payment/PaymentListItem"
 import { PaymentListState } from "./payment/PaymentListState"
-import { PaymentHistoryStats } from "./payment/PaymentHistoryStats"
+import { PaymentHistoryStats, PaymentHistoryStatsRef } from "./payment/PaymentHistoryStats"
 import { PaymentHistoryFilters, PaymentHistoryFilters as FilterType } from "./payment/PaymentHistoryFilters"
 import { PaymentHistoryReport } from "./payment/PaymentHistoryReport"
 import { PaymentBulkActions } from "./payment/PaymentBulkActions"
 import { usePaymentOperations } from "./payment/usePaymentOperations"
+import { usePaymentRecordOperations } from "@/hooks/usePaymentRecordOperations"
+import { DuplicatePaymentConfirmDialog } from "./payment/DuplicatePaymentConfirmDialog"
+import { AddPaymentRecordParams } from "@/services/paymentRecordService"
+
+// 预填充数据接口
+interface PrefilledData {
+  amount?: number
+  currency?: string
+  billingCycle?: string
+  nextBillingDate?: string
+}
 
 interface PaymentHistorySectionProps {
   subscriptionId: string
   subscriptionName: string
+  prefilledData?: PrefilledData
 }
 
-export function PaymentHistorySection({ subscriptionId, subscriptionName }: PaymentHistorySectionProps) {
+export function PaymentHistorySection({ subscriptionId, subscriptionName, prefilledData }: PaymentHistorySectionProps) {
   const [payments, setPayments] = useState<PaymentHistoryRecord[]>([])
   const [allPayments, setAllPayments] = useState<PaymentHistoryRecord[]>([]) // 存储所有支付记录用于筛选
   const [isLoading, setIsLoading] = useState(false)
@@ -33,6 +45,9 @@ export function PaymentHistorySection({ subscriptionId, subscriptionName }: Paym
   const [selectedPayments, setSelectedPayments] = useState<string[]>([])
   const [showBulkActions, setShowBulkActions] = useState(false)
   const { toast } = useToast()
+  
+  // PaymentHistoryStats组件的引用
+  const paymentStatsRef = useRef<PaymentHistoryStatsRef>(null)
 
   // 筛选状态
   const [filters, setFilters] = useState<FilterType>({
@@ -71,22 +86,78 @@ export function PaymentHistorySection({ subscriptionId, subscriptionName }: Paym
     fetchPaymentHistory()
   }, [subscriptionId])
 
-  // Load payment operations hook
+  /**
+   * 刷新支付数据和统计数据
+   */
+  const refreshPaymentData = async () => {
+    await fetchPaymentHistory()
+    // 刷新统计数据
+    if (paymentStatsRef.current) {
+      await paymentStatsRef.current.refreshStats()
+    }
+  }
+
+  // Load payment operations hook (for edit and delete)
   const {
-    handleAddPayment: addPayment,
     handleEditPayment: editPayment,
     handleDeleteClick,
     deleteConfirmation
-  } = usePaymentOperations(fetchPaymentHistory)
+  } = usePaymentOperations(refreshPaymentData)
 
-  // Handle adding new payment
-  const handleAddPayment = async (paymentData: any) => {
-    await addPayment(paymentData)
-    setShowAddForm(false)
+  // Load unified payment record operations hook (for add with duplicate detection)
+  const {
+    isLoading: isAddingPayment,
+    showDuplicateWarning,
+    duplicateDetectionResult,
+    addPaymentRecord,
+    confirmDuplicatePayment,
+    cancelDuplicatePayment
+  } = usePaymentRecordOperations({
+    onSuccess: async () => {
+      setShowAddForm(false)
+      await refreshPaymentData()
+    },
+    onError: (error) => {
+      console.error('支付记录添加失败:', error)
+    }
+  })
+
+  // Handle adding new payment with duplicate detection
+  const handleAddPayment = async (paymentData: {
+    subscriptionId: string
+    paymentDate: string
+    amountPaid: number
+    currency: string
+    billingPeriodStart: string
+    billingPeriodEnd: string
+    status: 'success' | 'failed' | 'pending'
+    notes?: string
+  }) => {
+    const params: AddPaymentRecordParams = {
+      subscriptionId,
+      paymentDate: paymentData.paymentDate,
+      amountPaid: paymentData.amountPaid,
+      currency: paymentData.currency,
+      billingPeriodStart: paymentData.billingPeriodStart,
+      billingPeriodEnd: paymentData.billingPeriodEnd,
+      status: paymentData.status,
+      notes: paymentData.notes
+    }
+    
+    await addPaymentRecord(params)
   }
 
   // Handle editing payment
-  const handleEditPayment = async (paymentData: any) => {
+  const handleEditPayment = async (paymentData: {
+    subscriptionId: string
+    paymentDate: string
+    amountPaid: number
+    currency: string
+    billingPeriodStart: string
+    billingPeriodEnd: string
+    status: 'success' | 'failed' | 'pending'
+    notes?: string
+  }) => {
     if (!editingPayment) return
     await editPayment(editingPayment.id, paymentData)
     setEditingPayment(null)
@@ -166,7 +237,7 @@ export function PaymentHistorySection({ subscriptionId, subscriptionName }: Paym
   return (
     <div className="space-y-6">
       {/* 支付历史统计 */}
-      <PaymentHistoryStats subscriptionId={subscriptionId} />
+      <PaymentHistoryStats ref={paymentStatsRef} subscriptionId={subscriptionId} />
 
       {/* 标签页导航 */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -259,11 +330,25 @@ export function PaymentHistorySection({ subscriptionId, subscriptionName }: Paym
         initialData={editingPayment || undefined}
         subscriptionId={subscriptionId}
         subscriptionName={subscriptionName}
+        prefilledData={!editingPayment ? prefilledData : undefined}
         onSubmit={editingPayment ? handleEditPayment : handleAddPayment}
       />
       
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog {...deleteConfirmation.dialogProps} />
+      
+      {/* Duplicate Payment Confirmation Dialog */}
+      <DuplicatePaymentConfirmDialog
+        open={showDuplicateWarning}
+        onOpenChange={(open) => {
+          if (!open) {
+            cancelDuplicatePayment()
+          }
+        }}
+        result={duplicateDetectionResult}
+        onConfirm={confirmDuplicatePayment}
+        onCancel={cancelDuplicatePayment}
+      />
     </div>
   )
 }

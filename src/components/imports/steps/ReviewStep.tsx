@@ -14,17 +14,17 @@ interface ReviewStepProps {
 export function ReviewStep({ subscriptions, errors, duplicates = [] }: ReviewStepProps) {
   return (
     <div className="space-y-6 py-4">
-      {/* 错误提示 */}
+      {/* Error alerts */}
       {errors.length > 0 && (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>验证错误</AlertTitle>
+          <AlertTitle>Validation Errors</AlertTitle>
           <AlertDescription>
             {errors.length === 1 ? (
               errors[0]
             ) : (
               <div className="mt-2">
-                <p className="mb-1">发现 {errors.length} 个错误:</p>
+                <p className="mb-1">Found {errors.length} errors:</p>
                 <ScrollArea className="h-20 rounded border p-2">
                   <ul className="text-sm space-y-1">
                     {errors.map((error, index) => (
@@ -40,14 +40,14 @@ export function ReviewStep({ subscriptions, errors, duplicates = [] }: ReviewSte
         </Alert>
       )}
 
-      {/* 重复项提示 */}
+      {/* Duplicate items alert */}
       {duplicates.length > 0 && (
         <Alert>
           <Info className="h-4 w-4" />
-          <AlertTitle>检测到重复项</AlertTitle>
+          <AlertTitle>Duplicates Detected</AlertTitle>
           <AlertDescription>
             <div className="mt-2">
-              <p className="mb-1">发现 {duplicates.length} 个重复项（将被跳过）:</p>
+              <p className="mb-1">Found {duplicates.length} duplicate items (will be skipped):</p>
               <ScrollArea className="h-20 rounded border p-2">
                 <ul className="text-sm space-y-1">
                   {duplicates.map((duplicate, index) => (
@@ -65,16 +65,16 @@ export function ReviewStep({ subscriptions, errors, duplicates = [] }: ReviewSte
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <p className="font-medium">发现 {subscriptions.length} 个订阅</p>
+            <p className="font-medium">Found {subscriptions.length} subscriptions</p>
             {duplicates.length > 0 && (
               <Badge variant="secondary">
-                {duplicates.length} 个重复项
+                {duplicates.length} duplicates
               </Badge>
             )}
           </div>
           {subscriptions.length > 0 && errors.length === 0 && (
             <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">
-              <Check className="mr-1 h-3 w-3" /> 准备导入
+              <Check className="mr-1 h-3 w-3" /> Ready to Import
             </span>
           )}
         </div>
@@ -82,9 +82,9 @@ export function ReviewStep({ subscriptions, errors, duplicates = [] }: ReviewSte
         {subscriptions.length > 0 && (
           <div className="border rounded-lg">
             <div className="grid grid-cols-3 gap-2 p-3 bg-muted/50 text-sm font-medium">
-              <div>名称</div>
-              <div>金额</div>
-              <div>状态</div>
+              <div>Name</div>
+              <div>Amount</div>
+              <div>Status</div>
             </div>
             <Separator />
             <ScrollArea className="h-60">

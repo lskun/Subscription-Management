@@ -38,7 +38,7 @@ export function ExchangeRateManager() {
   const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null);
   const [isLoadingScheduler, setIsLoadingScheduler] = useState(false);
 
-  // 加载汇率统计信息
+  // Load exchange rate statistics
   const loadRateStats = async () => {
     try {
       const stats = await supabaseExchangeRateService.getRateStats();
@@ -48,7 +48,7 @@ export function ExchangeRateManager() {
     }
   };
 
-  // 加载汇率历史记录
+  // Load exchange rate history
   const loadRateHistory = async () => {
     setIsLoadingHistory(true);
     try {
@@ -61,7 +61,7 @@ export function ExchangeRateManager() {
     }
   };
 
-  // 加载更新日志
+  // Load update logs
   const loadUpdateLogs = async () => {
     setIsLoadingLogs(true);
     try {
@@ -74,14 +74,14 @@ export function ExchangeRateManager() {
     }
   };
 
-  // 手动更新汇率（使用前端调度器）
+  // Manually update exchange rates (using frontend scheduler)
   const handleUpdateRates = async () => {
     setIsUpdating(true);
     try {
       const result = await exchangeRateScheduler.triggerUpdate();
       
       if (result.success) {
-        // 刷新汇率数据
+        // Refresh exchange rate data
         await fetchExchangeRates();
         await loadRateStats();
         await loadUpdateLogs();
@@ -97,7 +97,7 @@ export function ExchangeRateManager() {
     }
   };
 
-  // 加载定时任务状态
+  // Load scheduler status
   const loadSchedulerStatus = async () => {
     setIsLoadingScheduler(true);
     try {
@@ -110,7 +110,7 @@ export function ExchangeRateManager() {
     }
   };
 
-  // 清理旧数据
+  // Clean up old data
   const handleCleanupOldData = async (days: number = 90) => {
     try {
       await supabaseExchangeRateService.cleanupOldHistory(days);
@@ -122,7 +122,7 @@ export function ExchangeRateManager() {
     }
   };
 
-  // 启动/停止调度器
+  // Start/stop scheduler
   const handleToggleScheduler = () => {
     if (schedulerStatus?.isRunning) {
       exchangeRateScheduler.stop();
@@ -132,7 +132,7 @@ export function ExchangeRateManager() {
     loadSchedulerStatus();
   };
 
-  // 组件加载时获取统计信息
+  // Load statistics when component mounts
   useEffect(() => {
     loadRateStats();
     loadSchedulerStatus();
@@ -159,11 +159,11 @@ export function ExchangeRateManager() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'success':
-        return <Badge variant="default" className="bg-green-100 text-green-800">成功</Badge>;
+        return <Badge variant="default" className="bg-green-100 text-green-800">Success</Badge>;
       case 'failed':
-        return <Badge variant="destructive">失败</Badge>;
+        return <Badge variant="destructive">Failed</Badge>;
       case 'partial':
-        return <Badge variant="secondary">部分成功</Badge>;
+        return <Badge variant="secondary">Partial Success</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
     }
@@ -178,15 +178,15 @@ export function ExchangeRateManager() {
     <div className="space-y-4">
       <Tabs defaultValue="settings" className="w-full">
         <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="settings">设置</TabsTrigger>
-          <TabsTrigger value="status">状态</TabsTrigger>
-          <TabsTrigger value="scheduler">定时任务</TabsTrigger>
-          <TabsTrigger value="history">历史记录</TabsTrigger>
-          <TabsTrigger value="logs">更新日志</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="status">Status</TabsTrigger>
+          <TabsTrigger value="scheduler">Scheduler</TabsTrigger>
+          <TabsTrigger value="history">History</TabsTrigger>
+          <TabsTrigger value="logs">Update Logs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="settings" className="space-y-4">
-          {/* 货币设置和汇率列表 */}
+          {/* Currency settings and exchange rate list */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="flex flex-col">
           <CardHeader>
@@ -240,10 +240,10 @@ export function ExchangeRateManager() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <RefreshCw className="h-5 w-5" />
-                  汇率操作
+                  Exchange Rate Operations
                 </CardTitle>
                 <CardDescription>
-                  手动更新汇率和刷新数据
+                  Manually update exchange rates and refresh data
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col flex-1">
@@ -251,28 +251,28 @@ export function ExchangeRateManager() {
                   <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
                     <Clock className="h-4 w-4 text-blue-600" />
                     <p className="text-sm text-blue-800">
-                      汇率数据通过Edge Function自动更新，支持手动触发更新
+                      Exchange rate data is automatically updated via Edge Function, manual trigger update is supported
                     </p>
                   </div>
 
                   {rateStats && (
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-1">
-                        <p className="text-sm font-medium">总汇率数量</p>
+                        <p className="text-sm font-medium">Total Exchange Rates</p>
                         <p className="text-sm text-muted-foreground">{rateStats.total_rates}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-sm font-medium">支持货币</p>
-                        <p className="text-sm text-muted-foreground">{rateStats.supported_currencies.length} 种</p>
+                        <p className="text-sm font-medium">Supported Currencies</p>
+                        <p className="text-sm text-muted-foreground">{rateStats.supported_currencies.length} types</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-sm font-medium">最后更新</p>
+                        <p className="text-sm font-medium">Last Updated</p>
                         <p className="text-sm text-muted-foreground">
-                          {rateStats.latest_update ? formatUpdateTime(rateStats.latest_update) : '无'}
+                          {rateStats.latest_update ? formatUpdateTime(rateStats.latest_update) : 'None'}
                         </p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-sm font-medium">今日失败次数</p>
+                        <p className="text-sm font-medium">Failed Attempts Today</p>
                         <p className="text-sm text-muted-foreground">{rateStats.failed_updates_today}</p>
                       </div>
                     </div>
@@ -290,7 +290,7 @@ export function ExchangeRateManager() {
                     ) : (
                       <RefreshCw className="h-4 w-4 mr-2" />
                     )}
-                    更新汇率
+                    Update Exchange Rates
                   </Button>
 
                   <Button
@@ -300,19 +300,19 @@ export function ExchangeRateManager() {
                     disabled={isUpdating}
                   >
                     <RefreshCw className="h-4 w-4 mr-2" />
-                    刷新数据
+                    Refresh Data
                   </Button>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* 汇率列表 */}
+          {/* Exchange Rate List */}
           <Card>
             <CardHeader>
-              <CardTitle>当前汇率</CardTitle>
+              <CardTitle>Current Exchange Rates</CardTitle>
               <CardDescription>
-                所有汇率相对于 {currency} (1 {currency} = X 货币)
+                All exchange rates relative to {currency} (1 {currency} = X currency)
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -340,14 +340,14 @@ export function ExchangeRateManager() {
 
               {Object.keys(exchangeRates).length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
-                  <p>暂无汇率数据</p>
+                  <p>No exchange rate data available</p>
                   <Button
                     onClick={fetchExchangeRates}
                     variant="outline"
                     size="sm"
                     className="mt-2"
                   >
-                    加载汇率
+                    Load Exchange Rates
                   </Button>
                 </div>
               )}
@@ -360,72 +360,72 @@ export function ExchangeRateManager() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Settings className="h-5 w-5" />
-                定时任务管理
+                Scheduled Task Management
               </CardTitle>
               <CardDescription>
-                管理汇率自动更新定时任务
+                Manage automatic exchange rate update scheduled tasks
               </CardDescription>
             </CardHeader>
             <CardContent>
               {isLoadingScheduler ? (
                 <div className="text-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-                  <p className="text-muted-foreground">加载定时任务状态中...</p>
+                  <p className="text-muted-foreground">Loading scheduled task status...</p>
                 </div>
               ) : schedulerStatus ? (
                 <div className="space-y-6">
-                  {/* 调度器状态 */}
+                  {/* Scheduler Status */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="p-4 border rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <Activity className={`h-4 w-4 ${schedulerStatus.isRunning ? 'text-green-500' : 'text-red-500'}`} />
-                        <span className="font-medium">调度器状态</span>
+                        <span className="font-medium">Scheduler Status</span>
                       </div>
                       <p className="text-lg font-semibold">
-                        {schedulerStatus.isRunning ? '运行中' : '已停止'}
+                        {schedulerStatus.isRunning ? 'Running' : 'Stopped'}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        前端自动更新调度器
+                        Frontend automatic update scheduler
                       </p>
                     </div>
                     
                     <div className="p-4 border rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <Clock className="h-4 w-4 text-blue-500" />
-                        <span className="font-medium">下次更新时间</span>
+                        <span className="font-medium">Next Update Time</span>
                       </div>
                       <p className="text-lg font-semibold">
                         {schedulerStatus.nextUpdate 
                           ? formatUpdateTime(schedulerStatus.nextUpdate)
-                          : '未设置'
+                          : 'Not set'
                         }
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        预计下次自动更新
+                        Estimated next automatic update
                       </p>
                     </div>
 
                     <div className="p-4 border rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <AlertCircle className="h-4 w-4 text-orange-500" />
-                        <span className="font-medium">失败次数</span>
+                        <span className="font-medium">Failed Attempts</span>
                       </div>
                       <p className="text-lg font-semibold">
                         {schedulerStatus.failedAttempts}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        连续失败尝试次数
+                        Consecutive failed attempts
                       </p>
                     </div>
                   </div>
 
-                  {/* 调度器控制 */}
+                  {/* Scheduler Control */}
                   <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                     <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-medium text-blue-900">自动更新设置</h4>
+                      <h4 className="font-medium text-blue-900">Auto-update Settings</h4>
                       <div className="flex items-center gap-2">
                         <Label htmlFor="scheduler-toggle" className="text-sm text-blue-800">
-                          启用自动更新
+                          Enable Auto-update
                         </Label>
                         <Switch
                           id="scheduler-toggle"
@@ -435,30 +435,30 @@ export function ExchangeRateManager() {
                       </div>
                     </div>
                     <ul className="text-sm text-blue-800 space-y-1">
-                      <li>• 每6小时自动更新一次汇率数据</li>
-                      <li>• 支持手动触发更新</li>
-                      <li>• 失败时自动重试（最多3次）</li>
-                      <li>• 更新间隔: {Math.round(schedulerStatus.updateInterval / (60 * 60 * 1000))} 小时</li>
+                      <li>• Updates exchange rate data every 6 hours</li>
+                      <li>• Supports manual trigger updates</li>
+                      <li>• Automatically retries on failure (up to 3 times)</li>
+                      <li>• Update interval: {Math.round(schedulerStatus.updateInterval / (60 * 60 * 1000))} hours</li>
                     </ul>
                   </div>
 
-                  {/* 最后更新信息 */}
+                  {/* Last Update Information */}
                   {schedulerStatus.lastUpdate && (
                     <div className="p-4 border rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <RefreshCw className="h-4 w-4 text-green-500" />
-                        <span className="font-medium">最后更新时间</span>
+                        <span className="font-medium">Last Update Time</span>
                       </div>
                       <p className="text-lg">
                         {formatUpdateTime(schedulerStatus.lastUpdate)}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        上次成功更新汇率数据的时间
+                        Time of last successful exchange rate data update
                       </p>
                     </div>
                   )}
 
-                  {/* 操作按钮 */}
+                  {/* Action Buttons */}
                   <div className="flex gap-2 pt-4 border-t">
                     <Button
                       onClick={loadSchedulerStatus}
@@ -471,7 +471,7 @@ export function ExchangeRateManager() {
                       ) : (
                         <RefreshCw className="h-4 w-4 mr-2" />
                       )}
-                      刷新状态
+                      Refresh Status
                     </Button>
 
                     <Button
@@ -484,7 +484,7 @@ export function ExchangeRateManager() {
                       ) : (
                         <RefreshCw className="h-4 w-4 mr-2" />
                       )}
-                      立即更新
+                      Update Now
                     </Button>
 
                     <Button
@@ -493,20 +493,20 @@ export function ExchangeRateManager() {
                       size="sm"
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
-                      清理旧数据
+                      Clean Up Old Data
                     </Button>
                   </div>
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  <p>无法获取定时任务状态</p>
+                  <p>Unable to get scheduled task status</p>
                   <Button
                     onClick={loadSchedulerStatus}
                     variant="outline"
                     size="sm"
                     className="mt-2"
                   >
-                    重试
+                    Retry
                   </Button>
                 </div>
               )}
@@ -519,10 +519,10 @@ export function ExchangeRateManager() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <TrendingUp className="h-5 w-5" />
-                汇率系统状态
+                Exchange Rate System Status
               </CardTitle>
               <CardDescription>
-                系统运行状态和统计信息
+                System running status and statistics
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -531,7 +531,7 @@ export function ExchangeRateManager() {
                   <div className="p-4 border rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <CheckCircle className="h-4 w-4 text-green-500" />
-                      <span className="font-medium">总汇率数量</span>
+                      <span className="font-medium">Total Exchange Rates</span>
                     </div>
                     <p className="text-2xl font-bold">{rateStats.total_rates}</p>
                   </div>
@@ -539,7 +539,7 @@ export function ExchangeRateManager() {
                   <div className="p-4 border rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <Clock className="h-4 w-4 text-blue-500" />
-                      <span className="font-medium">支持货币</span>
+                      <span className="font-medium">Supported Currencies</span>
                     </div>
                     <p className="text-2xl font-bold">{rateStats.supported_currencies.length}</p>
                     <p className="text-xs text-muted-foreground mt-1">
@@ -550,7 +550,7 @@ export function ExchangeRateManager() {
                   <div className="p-4 border rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <AlertCircle className="h-4 w-4 text-red-500" />
-                      <span className="font-medium">今日失败次数</span>
+                      <span className="font-medium">Failed Attempts Today</span>
                     </div>
                     <p className="text-2xl font-bold">{rateStats.failed_updates_today}</p>
                   </div>
@@ -558,12 +558,12 @@ export function ExchangeRateManager() {
                   <div className="p-4 border rounded-lg md:col-span-2">
                     <div className="flex items-center gap-2 mb-2">
                       <RefreshCw className="h-4 w-4 text-green-500" />
-                      <span className="font-medium">最后成功更新</span>
+                      <span className="font-medium">Last Successful Update</span>
                     </div>
                     <p className="text-lg">
                       {rateStats.last_successful_update 
                         ? formatUpdateTime(rateStats.last_successful_update)
-                        : '暂无记录'
+                        : 'No record'
                       }
                     </p>
                   </div>
@@ -571,7 +571,7 @@ export function ExchangeRateManager() {
               ) : (
                 <div className="text-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-                  <p className="text-muted-foreground">加载状态信息中...</p>
+                  <p className="text-muted-foreground">Loading status information...</p>
                 </div>
               )}
             </CardContent>
@@ -583,16 +583,16 @@ export function ExchangeRateManager() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <History className="h-5 w-5" />
-                汇率历史记录
+                Exchange Rate History
               </CardTitle>
               <CardDescription>
-                查看汇率变更历史
+                View exchange rate change history
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex justify-between items-center mb-4">
                 <p className="text-sm text-muted-foreground">
-                  显示最近的汇率变更记录
+                  Display recent exchange rate change records
                 </p>
                 <Button
                   onClick={loadRateHistory}
@@ -605,14 +605,14 @@ export function ExchangeRateManager() {
                   ) : (
                     <RefreshCw className="h-4 w-4 mr-2" />
                   )}
-                  刷新
+                  Refresh
                 </Button>
               </div>
 
               {isLoadingHistory ? (
                 <div className="text-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-                  <p className="text-muted-foreground">加载历史记录中...</p>
+                  <p className="text-muted-foreground">Loading history records...</p>
                 </div>
               ) : rateHistory.length > 0 ? (
                 <div className="space-y-2 max-h-96 overflow-y-auto">
@@ -640,7 +640,7 @@ export function ExchangeRateManager() {
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  <p>暂无历史记录</p>
+                  <p>No history records</p>
                 </div>
               )}
             </CardContent>
@@ -652,16 +652,16 @@ export function ExchangeRateManager() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
-                更新日志
+                Update Logs
               </CardTitle>
               <CardDescription>
-                查看汇率更新操作日志
+                View exchange rate update operation logs
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex justify-between items-center mb-4">
                 <p className="text-sm text-muted-foreground">
-                  显示最近的更新操作记录
+                  Display recent update operation records
                 </p>
                 <Button
                   onClick={loadUpdateLogs}
@@ -674,14 +674,14 @@ export function ExchangeRateManager() {
                   ) : (
                     <RefreshCw className="h-4 w-4 mr-2" />
                   )}
-                  刷新
+                  Refresh
                 </Button>
               </div>
 
               {isLoadingLogs ? (
                 <div className="text-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-                  <p className="text-muted-foreground">加载更新日志中...</p>
+                  <p className="text-muted-foreground">Loading update logs...</p>
                 </div>
               ) : updateLogs.length > 0 ? (
                 <div className="space-y-2 max-h-96 overflow-y-auto">
@@ -696,9 +696,9 @@ export function ExchangeRateManager() {
                           </Badge>
                         </div>
                         <p className="text-sm text-muted-foreground">
-                          开始: {formatUpdateTime(log.started_at)}
+                          Started: {formatUpdateTime(log.started_at)}
                           {log.completed_at && (
-                            <> | 完成: {formatUpdateTime(log.completed_at)}</>
+                            <> | Completed: {formatUpdateTime(log.completed_at)}</>
                           )}
                         </p>
                         {log.error_message && (
@@ -706,15 +706,15 @@ export function ExchangeRateManager() {
                         )}
                       </div>
                       <div className="text-right">
-                        <p className="font-medium">{log.rates_updated} 条</p>
-                        <p className="text-xs text-muted-foreground">已更新</p>
+                        <p className="font-medium">{log.rates_updated} rates</p>
+                        <p className="text-xs text-muted-foreground">Updated</p>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
-                  <p>暂无更新日志</p>
+                  <p>No update logs</p>
                 </div>
               )}
             </CardContent>

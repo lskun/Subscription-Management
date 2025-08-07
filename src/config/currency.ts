@@ -96,8 +96,30 @@ const BASE_RATES: Record<CurrencyType, Record<CurrencyType, number>> = {
   }
 };
 
-// 默认汇率（根据基础货币动态获取）
-export const DEFAULT_EXCHANGE_RATES: Record<CurrencyType, number> = BASE_RATES[BASE_CURRENCY];
+/**
+ * 生成完整的双向汇率映射
+ * 支持任意货币对之间的转换，避免 convertCurrency 函数中的汇率缺失问题
+ */
+function generateCompleteExchangeRates(): Record<CurrencyType, number> {
+  const baseRates = BASE_RATES[BASE_CURRENCY];
+  const completeRates: Record<string, number> = {};
+  
+  // 添加所有支持的货币汇率
+  SUPPORTED_CURRENCIES.forEach(currency => {
+    if (baseRates[currency] !== undefined) {
+      completeRates[currency] = baseRates[currency];
+    } else {
+      // 如果基础汇率中没有该货币，设置为1（避免undefined）
+      console.warn(`Missing base rate for ${currency}, defaulting to 1`);
+      completeRates[currency] = 1;
+    }
+  });
+  
+  return completeRates as Record<CurrencyType, number>;
+}
+
+// 默认汇率数据 - 完整的双向汇率映射，支持任意货币对转换
+export const DEFAULT_EXCHANGE_RATES: Record<CurrencyType, number> = generateCompleteExchangeRates();
 
 // 工具函数
 export const isBaseCurrency = (currency: string): boolean => currency === BASE_CURRENCY;

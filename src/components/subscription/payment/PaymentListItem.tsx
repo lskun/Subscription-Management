@@ -34,11 +34,11 @@ export function PaymentListItem({
   // Get status badge color
   const getStatusBadgeVariant = (status: string) => {
     switch (status.toLowerCase()) {
-      case 'succeeded':
+      case 'success':
         return 'default'
       case 'failed':
         return 'destructive'
-      case 'refunded':
+      case 'pending':
         return 'secondary'
       default:
         return 'outline'

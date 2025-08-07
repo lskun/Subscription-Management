@@ -82,7 +82,7 @@ interface SubscriptionState {
   error: string | null
   // Request deduplication
   _fetchPromises: {
-    subscriptions?: Promise<void>
+    subscriptions?: Promise<Subscription[]>
   }
   _lastFetch: {
     subscriptions?: number
@@ -94,7 +94,7 @@ interface SubscriptionState {
   updateSubscription: (id: string, subscription: Partial<Subscription>) => Promise<{ error: any | null }>
   deleteSubscription: (id: string) => Promise<{ error: any | null }>
   resetSubscriptions: () => Promise<{ error: any | null }>
-  fetchSubscriptions: () => Promise<void>
+  fetchSubscriptions: () => Promise<Subscription[]>
   fetchCategories: () => Promise<void>
   fetchPaymentMethods: () => Promise<void>
 
@@ -171,12 +171,13 @@ const subscriptionStore = create<SubscriptionState>()(
         // Check if we have a recent fetch or ongoing request
         if (state._lastFetch.subscriptions && (now - state._lastFetch.subscriptions) < CACHE_DURATION) {
           console.log('跳过订阅数据获取，使用缓存数据')
-          return // Skip if recently fetched
+          return state.subscriptions // Return cached subscriptions
         }
 
         if (state._fetchPromises.subscriptions) {
           console.log('等待现有的订阅数据获取请求')
-          return state._fetchPromises.subscriptions // Return existing promise
+          await state._fetchPromises.subscriptions // Wait for existing promise
+          return state.subscriptions // Return cached subscriptions
         }
 
         const fetchPromise = (async () => {
@@ -191,9 +192,11 @@ const subscriptionStore = create<SubscriptionState>()(
               _lastFetch: { ...get()._lastFetch, subscriptions: now }
             })
             console.log(`Store更新完成，当前订阅数: ${get().subscriptions.length}`)
+            return subscriptions
           } catch (error: any) {
             console.error('Error fetching subscriptions:', error)
             set({ error: error.message, isLoading: false, subscriptions: [] })
+            throw error
           } finally {
             // Clear the promise after completion
             set(state => ({
@@ -348,7 +351,7 @@ const subscriptionStore = create<SubscriptionState>()(
             // 兼容旧的调用方式：通过value查找ID
             const existingCategory = await supabaseCategoriesService.getCategoryByValue(oldValue)
             if (!existingCategory) {
-              throw new Error('分类不存在')
+              throw new Error('Category not found')
             }
             // 只更新value字段，label字段已弃用
             await supabaseCategoriesService.updateCategory(existingCategory.id, {
@@ -402,7 +405,7 @@ const subscriptionStore = create<SubscriptionState>()(
             // 兼容旧的调用方式：通过value查找ID
             const existingPaymentMethod = await supabasePaymentMethodsService.getPaymentMethodByValue(oldValue)
             if (!existingPaymentMethod) {
-              throw new Error('支付方式不存在')
+              throw new Error('Payment method not found')
             }
             // 只更新value字段，label字段已弃用
             await supabasePaymentMethodsService.updatePaymentMethod(existingPaymentMethod.id, {

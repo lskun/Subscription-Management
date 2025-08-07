@@ -1,4 +1,4 @@
-// 邮件偏好设置表单组件
+// Email preferences form component
 import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card'
 import { Switch } from '../ui/switch'
@@ -10,7 +10,7 @@ import { useToast } from '../../hooks/use-toast'
 import { emailNotificationService, EmailPreference, EmailType } from '../../services/emailNotificationService'
 import { useAuth } from '../../contexts/AuthContext'
 
-// 邮件类型配置
+// Email type configuration
 const EMAIL_TYPE_CONFIG: Record<EmailType, {
   label: string
   description: string
@@ -19,69 +19,69 @@ const EMAIL_TYPE_CONFIG: Record<EmailType, {
   defaultEnabled: boolean
 }> = {
   welcome: {
-    label: '欢迎邮件',
-    description: '新用户注册时发送的欢迎邮件',
+    label: 'Welcome Email',
+    description: 'Welcome email sent when new users register',
     icon: '👋',
     category: 'account',
     defaultEnabled: true
   },
   subscription_expiry: {
-    label: '订阅到期提醒',
-    description: '订阅即将到期时发送的提醒邮件',
+    label: 'Subscription Expiry Reminder',
+    description: 'Reminder email sent when subscription is about to expire',
     icon: '⏰',
     category: 'subscription',
     defaultEnabled: true
   },
   payment_failed: {
-    label: '支付失败通知',
-    description: '支付失败时发送的通知邮件',
+    label: 'Payment Failed Notification',
+    description: 'Notification email sent when payment fails',
     icon: '❌',
     category: 'subscription',
     defaultEnabled: true
   },
   payment_success: {
-    label: '支付成功确认',
-    description: '支付成功时发送的确认邮件',
+    label: 'Payment Success Confirmation',
+    description: 'Confirmation email sent when payment succeeds',
     icon: '✅',
     category: 'subscription',
     defaultEnabled: true
   },
   quota_warning: {
-    label: '配额警告',
-    description: '使用量接近限制时发送的警告邮件',
+    label: 'Quota Warning',
+    description: 'Warning email sent when usage approaches limit',
     icon: '⚠️',
     category: 'account',
     defaultEnabled: true
   },
   security_alert: {
-    label: '安全警告',
-    description: '检测到安全问题时发送的警告邮件',
+    label: 'Security Alert',
+    description: 'Warning email sent when security issues are detected',
     icon: '🔒',
     category: 'security',
     defaultEnabled: true
   },
   system_update: {
-    label: '系统更新通知',
-    description: '系统有重要更新时发送的通知邮件',
+    label: 'System Update Notification',
+    description: 'Notification email sent when system has important updates',
     icon: '🚀',
     category: 'system',
     defaultEnabled: false
   },
   password_reset: {
-    label: '密码重置',
-    description: '密码重置请求时发送的邮件',
+    label: 'Password Reset',
+    description: 'Email sent when password reset is requested',
     icon: '🔑',
     category: 'security',
     defaultEnabled: true
   }
 }
 
-// 分类配置
+// Category configuration
 const CATEGORY_CONFIG = {
-  account: { label: '账户相关', color: 'blue' },
-  subscription: { label: '订阅管理', color: 'green' },
-  security: { label: '安全警告', color: 'red' },
-  system: { label: '系统通知', color: 'gray' }
+  account: { label: 'Account Related', color: 'blue' },
+  subscription: { label: 'Subscription Management', color: 'green' },
+  security: { label: 'Security Alerts', color: 'red' },
+  system: { label: 'System Notifications', color: 'gray' }
 }
 
 interface EmailPreferencesFormProps {
@@ -97,7 +97,7 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
   const [saving, setSaving] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
 
-  // 加载邮件偏好设置
+  // Load email preferences
   useEffect(() => {
     if (user?.id) {
       loadEmailPreferences()
@@ -110,10 +110,10 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
       const data = await emailNotificationService.getUserEmailPreferences(user!.id)
       setPreferences(data)
     } catch (error) {
-      console.error('加载邮件偏好失败:', error)
+      console.error('Failed to load email preferences:', error)
       toast({
-        title: '加载失败',
-        description: '无法加载邮件偏好设置，请刷新页面重试',
+        title: 'Loading Failed',
+        description: 'Unable to load email preferences, please refresh the page and try again',
         variant: 'destructive'
       })
     } finally {
@@ -121,12 +121,12 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
     }
   }
 
-  // 获取特定类型的偏好设置
+  // Get preference for specific type
   const getPreference = (emailType: EmailType): EmailPreference | undefined => {
     return preferences.find(p => p.email_type === emailType)
   }
 
-  // 更新偏好设置
+  // Update preference
   const updatePreference = (
     emailType: EmailType,
     field: 'enabled' | 'frequency',
@@ -141,7 +141,7 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
             : p
         )
       } else {
-        // 创建新的偏好设置
+        // Create new preference
         const newPreference: EmailPreference = {
           id: `temp-${emailType}`,
           user_id: user!.id,
@@ -157,7 +157,7 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
     setHasChanges(true)
   }
 
-  // 保存设置
+  // Save preferences
   const savePreferences = async () => {
     try {
       setSaving(true)
@@ -172,14 +172,14 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
       
       setHasChanges(false)
       toast({
-        title: '保存成功',
-        description: '邮件偏好设置已更新'
+        title: 'Save Successful',
+        description: 'Email preferences have been updated'
       })
     } catch (error) {
-      console.error('保存邮件偏好失败:', error)
+      console.error('Failed to save email preferences:', error)
       toast({
-        title: '保存失败',
-        description: '无法保存邮件偏好设置，请重试',
+        title: 'Save Failed',
+        description: 'Unable to save email preferences, please try again',
         variant: 'destructive'
       })
     } finally {
@@ -187,13 +187,13 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
     }
   }
 
-  // 重置设置
+  // Reset preferences
   const resetPreferences = () => {
     loadEmailPreferences()
     setHasChanges(false)
   }
 
-  // 按分类分组邮件类型
+  // Group email types by category
   const groupedEmailTypes = Object.entries(EMAIL_TYPE_CONFIG).reduce((acc, [type, config]) => {
     if (!acc[config.category]) {
       acc[config.category] = []
@@ -206,8 +206,8 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
     return (
       <Card className={className}>
         <CardHeader>
-          <CardTitle>邮件通知偏好</CardTitle>
-          <CardDescription>正在加载设置...</CardDescription>
+          <CardTitle>Email Notification Preferences</CardTitle>
+          <CardDescription>Loading settings...</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -230,10 +230,10 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
     <Card className={className}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          📧 邮件通知偏好
+          📧 Email Notification Preferences
         </CardTitle>
         <CardDescription>
-          管理您希望接收的邮件通知类型和频率
+          Manage the types and frequency of email notifications you wish to receive
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -247,7 +247,7 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
                 variant="secondary"
                 className={`text-${CATEGORY_CONFIG[category as keyof typeof CATEGORY_CONFIG].color}-600`}
               >
-                {emailTypes.length} 项
+                {emailTypes.length} items
               </Badge>
             </div>
             
@@ -266,7 +266,7 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
                           <h4 className="font-medium">{config.label}</h4>
                           {!config.defaultEnabled && (
                             <Badge variant="outline" className="text-xs">
-                              可选
+                              Optional
                             </Badge>
                           )}
                         </div>
@@ -284,10 +284,10 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="immediate">立即发送</SelectItem>
-                            <SelectItem value="daily">每日汇总</SelectItem>
-                            <SelectItem value="weekly">每周汇总</SelectItem>
-                            <SelectItem value="never">从不发送</SelectItem>
+                            <SelectItem value="immediate">Send Immediately</SelectItem>
+                            <SelectItem value="daily">Daily Summary</SelectItem>
+                            <SelectItem value="weekly">Weekly Summary</SelectItem>
+                            <SelectItem value="never">Never Send</SelectItem>
                           </SelectContent>
                         </Select>
                       )}
@@ -309,7 +309,7 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
         {hasChanges && (
           <div className="flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg">
             <div className="flex items-center gap-2 text-blue-700">
-              <span className="text-sm font-medium">您有未保存的更改</span>
+              <span className="text-sm font-medium">You have unsaved changes</span>
             </div>
             <div className="flex gap-2">
               <Button
@@ -318,14 +318,14 @@ export function EmailPreferencesForm({ className }: EmailPreferencesFormProps) {
                 onClick={resetPreferences}
                 disabled={saving}
               >
-                重置
+                Reset
               </Button>
               <Button
                 size="sm"
                 onClick={savePreferences}
                 disabled={saving}
               >
-                {saving ? '保存中...' : '保存设置'}
+                {saving ? 'Saving...' : 'Save Settings'}
               </Button>
             </div>
           </div>

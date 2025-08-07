@@ -10,11 +10,11 @@ import { useSettingsStore } from '@/store/settingsStore'
 // CacheManager 已迁移到 settingsStore
 
 /**
- * 用户配置管理服务
+ * 用户资料管理服务
  */
 export class UserProfileService {
   /**
-   * 获取用户配置信息（带缓存和请求去重）
+   * 获取用户资料信息（带缓存和请求去重）
    */
   static async getUserProfile(userId?: string): Promise<UserProfile | null> {
     try {
@@ -32,18 +32,18 @@ export class UserProfileService {
       const cached = useSettingsStore.getState().getFromGlobalCache<any>(cacheKey)
       
       if (cached.data) {
-        console.log('🎯 使用缓存的用户配置数据:', targetUserId)
+        console.log('🎯 使用缓存的用户资料数据:', targetUserId)
         return cached.data
       }
       
       if (cached.promise) {
-        console.log('⏳ 等待现有的用户配置获取请求:', targetUserId)
+        console.log('⏳ 等待现有的用户资料获取请求:', targetUserId)
         return cached.promise
       }
 
-      console.log('🔄 发起新的用户配置请求:', targetUserId)
+      console.log('🔄 发起新的用户资料请求:', targetUserId)
 
-      // 创建新的获取Promise
+      // 创建新的获取 Promise
       const fetchPromise = (async () => {
         try {
           const { data, error } = await supabase
@@ -54,8 +54,8 @@ export class UserProfileService {
 
           if (error) {
             if (error.code === 'PGRST116') {
-              console.log('📝 用户配置不存在，创建默认配置:', targetUserId)
-              // 用户配置不存在，创建默认配置
+              console.log('📝 用户资料不存在，创建默认资料:', targetUserId)
+              // 用户资料不存在，创建默认资料
               const profile = await this.createDefaultProfile(targetUserId)
               // 设置缓存
               useSettingsStore.getState().setGlobalCache(cacheKey, profile)
@@ -64,27 +64,27 @@ export class UserProfileService {
             throw error
           }
 
-          console.log('✅ 用户配置获取成功，设置缓存:', targetUserId)
+          console.log('✅ 用户资料获取成功，设置缓存:', targetUserId)
           // 设置缓存
           useSettingsStore.getState().setGlobalCache(cacheKey, data)
           return data
         } finally {
-          // 请求完成后清除Promise引用
+          // 请求完成后清除 Promise 引用
           useSettingsStore.getState().clearGlobalCachePromise(cacheKey)
         }
       })();
 
-      // 存储Promise以便去重
+      // 存储 Promise 用于去重
       useSettingsStore.getState().setGlobalCachePromise(cacheKey, fetchPromise)
       return fetchPromise
     } catch (error) {
-      console.error('获取用户配置失败:', error)
+      console.error('获取用户资料失败:', error)
       throw error
     }
   }
 
   /**
-   * 创建默认用户配置
+   * 创建默认用户资料
    */
   static async createDefaultProfile(userId: string): Promise<UserProfile> {
     try {
@@ -113,13 +113,13 @@ export class UserProfileService {
 
       return data
     } catch (error) {
-      console.error('创建默认用户配置失败:', error)
+      console.error('创建默认用户资料失败:', error)
       throw error
     }
   }
 
   /**
-   * 更新用户配置信息
+   * 更新用户资料信息
    */
   static async updateUserProfile(
     updates: UpdateUserProfileData,
@@ -150,13 +150,13 @@ export class UserProfileService {
         throw error
       }
 
-      // 清除缓存，确保下次获取时能获取最新数据
+      // 清除缓存以确保下次获取最新数据
       const cacheKey = useSettingsStore.getState().generateCacheKey('userProfile', targetUserId)
       useSettingsStore.getState().clearGlobalCache(cacheKey)
       
       return data as UserProfile
     } catch (error) {
-      console.error('更新用户配置失败:', error)
+      console.error('更新用户资料失败:', error)
       throw error
     }
   }
@@ -170,17 +170,18 @@ export class UserProfileService {
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
       // 验证文件类型
+      // 验证文件类型
       if (!file.type.startsWith('image/')) {
-        throw new Error('请选择图片文件')
+        throw new Error('Please select an image file')
       }
 
-      // 验证文件大小 (最大 2MB)
+      // 验证文件大小（最大2MB）
       if (file.size > 2 * 1024 * 1024) {
-        throw new Error('图片文件大小不能超过 2MB')
+        throw new Error('Image file size cannot exceed 2MB')
       }
 
       // 生成唯一文件名
@@ -188,7 +189,7 @@ export class UserProfileService {
       const fileName = `${targetUserId}-${Date.now()}.${fileExt}`
       const filePath = `avatars/${fileName}`
 
-      // 上传文件到Supabase Storage
+      // 上传文件到 Supabase 存储
       const { error: uploadError } = await supabase.storage
         .from('user-avatars')
         .upload(filePath, file, {
@@ -205,65 +206,60 @@ export class UserProfileService {
         .from('user-avatars')
         .getPublicUrl(filePath)
 
-      // 更新用户配置中的头像URL
-      // updateUserProfile 方法内部会清除缓存
+      // 更新用户资料中的头像URL
+      // updateUserProfile 方法会在内部清除缓存
       await this.updateUserProfile({ avatar_url: publicUrl }, targetUserId)
 
       return publicUrl
     } catch (error) {
-      console.error('上传头像失败:', error)
+      console.error('Upload avatar failed:', error)
       throw error
     }
   }
 
   /**
-   * 缓存 Google 头像到 Supabase Storage
-   * @param googleAvatarUrl Google 头像 URL
-   * @param userId 用户 ID
-   * @returns 缓存后的头像 URL
-   */
-  /**
-   * 获取 Google 头像 URL（不再上传到 Supabase Storage，直接返回原始 URL）
-   * @param googleAvatarUrl Google 头像 URL
-   * @param userId 用户 ID（可选）
-   * @returns Google 头像 URL
+   * 获取 Google 头像URL（不再上传到 Supabase 存储，直接返回原始URL）
+   * @param googleAvatarUrl Google avatar URL
+   * @param userId User ID (optional)
+   * @returns Google avatar URL
    */
   static async getGoogleAvatarUrl(googleAvatarUrl: string, userId?: string): Promise<string> {
     try {
       let targetUserId = userId
       
-      // 只有在没有提供 userId 时才调用 UserCacheService
+      // 仅在未提供 userId 时调用 UserCacheService
       if (!targetUserId) {
         const user = await useSettingsStore.getState().getCurrentUser()
         if (!user) {
-          throw new Error('用户未登录')
+          throw new Error('User not logged in')
         }
         targetUserId = user.id
       }
 
-      // 检查用户配置中是否有自定义头像（非 Google 头像）
+      // 检查用户资料是否有自定义头像（非Google头像）
       const profile = await this.getUserProfile(targetUserId)
       if (profile?.avatar_url && !profile.avatar_url.includes('googleusercontent.com')) {
-        // 已经有自定义头像，直接返回
+        // 已有自定义头像，直接返回
         return profile.avatar_url
       }
 
-      // 直接返回 Google 头像 URL，不再上传到 Supabase Storage
+      // 直接返回 Google 头像URL，不再上传到 Supabase 存储
       return googleAvatarUrl
     } catch (error) {
-      console.warn('获取 Google 头像失败:', error)
+      console.warn('Get Google avatar failed:', error)
       // 如果获取失败，返回原始 Google URL
       return googleAvatarUrl
     }
   }
 
   /**
-   * 获取用户头像 URL（优先使用缓存的头像）
-   * @param userId 用户 ID
-   * @returns 头像 URL
+   * 获取用户头像URL（优先使用缓存头像）
+   * @param userId User ID
+   * @returns Avatar URL
    */
   static async getUserAvatarUrl(userId?: string): Promise<string | null> {
     try {
+      // Use settingsStore to get user information
       // 使用 settingsStore 获取用户信息
       const user = await useSettingsStore.getState().getCurrentUser()
       if (!user) {
@@ -272,38 +268,40 @@ export class UserProfileService {
 
       const targetUserId = userId || user.id
 
+      // Generate avatar cache key
       // 生成头像缓存键
       const avatarCacheKey = useSettingsStore.getState().generateCacheKey('userAvatar', targetUserId)
       
+      // Check avatar cache
       // 检查头像缓存
       const avatarCached = useSettingsStore.getState().getFromGlobalCache<string | null>(avatarCacheKey)
       
       if (avatarCached.data !== null) {
-        console.log('🎯 使用缓存的用户头像:', targetUserId)
+        console.log('🎯 Using cached user avatar:', targetUserId)
         return avatarCached.data
       }
       
       if (avatarCached.promise) {
-        console.log('⏳ 等待现有的用户头像获取请求:', targetUserId)
+        console.log('⏳ Waiting for existing user avatar fetch request:', targetUserId)
         return avatarCached.promise
       }
 
-      console.log('🔄 发起新的用户头像请求:', targetUserId)
+      console.log('🔄 Initiating new user avatar request:', targetUserId)
 
       // 创建新的获取Promise
       const fetchAvatarPromise = (async () => {
         try {
-          // 获取用户配置中的头像
+          // 从用户资料获取头像
           const profile = await this.getUserProfile(targetUserId)
           
-          // 如果配置中有头像且不是 Google 头像，直接返回
+          // 如果资料有头像且不是Google头像，直接返回
           if (profile?.avatar_url && !profile.avatar_url.includes('googleusercontent.com')) {
             const avatarUrl = profile.avatar_url
             useSettingsStore.getState().setGlobalCache(avatarCacheKey, avatarUrl)
             return avatarUrl
           }
 
-          // 如果用户元数据中有 Google 头像，处理 Google 头像
+          // 如果用户元数据有Google头像，处理Google头像
           const googleAvatarUrl = user.user_metadata?.avatar_url
           if (googleAvatarUrl && googleAvatarUrl.includes('googleusercontent.com')) {
             const processedUrl = await this.getGoogleAvatarUrl(googleAvatarUrl, targetUserId)
@@ -311,7 +309,7 @@ export class UserProfileService {
             return processedUrl
           }
 
-          // 返回配置中的头像或 null
+          // 返回资料中的头像或null
           const avatarUrl = profile?.avatar_url || null
           useSettingsStore.getState().setGlobalCache(avatarCacheKey, avatarUrl)
           return avatarUrl
@@ -321,11 +319,11 @@ export class UserProfileService {
         }
       })();
 
-      // 存储Promise以便去重
+      // 存储Promise用于去重
       useSettingsStore.getState().setGlobalCachePromise(avatarCacheKey, fetchAvatarPromise)
       return fetchAvatarPromise
     } catch (error) {
-      console.warn('获取用户头像失败:', error)
+      console.warn('Get user avatar failed:', error)
       return null
     }
   }
@@ -339,7 +337,7 @@ export class UserProfileService {
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
       // 获取当前头像URL
@@ -348,30 +346,31 @@ export class UserProfileService {
         return
       }
 
-      // 从URL中提取文件路径
+      // 从URL提取文件路径
       const url = new URL(profile.avatar_url)
       const filePath = url.pathname.split('/').slice(-2).join('/')
 
-      // 删除存储中的文件
+      // 从存储中删除文件
       const { error: deleteError } = await supabase.storage
         .from('user-avatars')
         .remove([filePath])
 
       if (deleteError) {
-        console.warn('删除头像文件失败:', deleteError)
-        // 即使删除文件失败，也要清除数据库中的URL
+        console.warn('Delete avatar file failed:', deleteError)
+        // 即使文件删除失败也清除数据库中的URL
       }
 
-      // 清除用户配置中的头像URL
-      // updateUserProfile 方法内部会清除缓存
+      // 清除用户资料中的头像URL
+      // updateUserProfile 方法会在内部清除缓存
       await this.updateUserProfile({ avatar_url: null }, targetUserId)
     } catch (error) {
-      console.error('删除头像失败:', error)
+      console.error('Failed to delete avatar:', error)
       throw error
     }
   }
 
   /**
+   * Get user setting (with cache)
    * 获取用户设置（带缓存）
    */
   static async getUserSetting(
@@ -383,7 +382,7 @@ export class UserProfileService {
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
       // 生成缓存键
@@ -393,16 +392,16 @@ export class UserProfileService {
       const cached = useSettingsStore.getState().getFromGlobalCache<any>(cacheKey)
       
       if (cached.data !== null) {
-        console.log('🎯 使用缓存的用户设置数据:', settingKey, targetUserId)
+        console.log('🎯 Using cached user setting data:', settingKey, targetUserId)
         return cached.data
       }
       
       if (cached.promise) {
-        console.log('⏳ 等待现有的用户设置获取请求:', settingKey, targetUserId)
+        console.log('⏳ Waiting for existing user setting fetch request:', settingKey, targetUserId)
         return cached.promise
       }
 
-      console.log('🔄 发起新的用户设置请求:', settingKey, targetUserId)
+      console.log('🔄 Initiating new user setting request:', settingKey, targetUserId)
 
       // 创建新的获取Promise
       const fetchPromise = (async () => {
@@ -417,14 +416,14 @@ export class UserProfileService {
           if (error) {
             if (error.code === 'PGRST116') {
               // 设置不存在，返回null并缓存
-              console.log('📝 用户设置不存在，缓存 null 值:', settingKey, targetUserId)
+              console.log('📝 User setting doesn\'t exist, caching null value:', settingKey, targetUserId)
               useSettingsStore.getState().setGlobalCache(cacheKey, null)
               return null
             }
             throw error
           }
 
-          console.log('✅ 用户设置获取成功，设置缓存:', settingKey, targetUserId)
+          console.log('✅ User setting fetch successful, setting cache:', settingKey, targetUserId)
           // 设置缓存
           useSettingsStore.getState().setGlobalCache(cacheKey, data.setting_value)
           return data.setting_value
@@ -434,11 +433,11 @@ export class UserProfileService {
         }
       })();
 
-      // 存储Promise以便去重
+      // 存储Promise用于去重
       useSettingsStore.getState().setGlobalCachePromise(cacheKey, fetchPromise)
       return fetchPromise
     } catch (error) {
-      console.error('获取用户设置失败:', error)
+      console.error('Get user setting failed:', error)
       throw error
     }
   }
@@ -456,7 +455,7 @@ export class UserProfileService {
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
       
       const { data, error } = await supabase
@@ -471,13 +470,13 @@ export class UserProfileService {
         throw error
       }
     } catch (error) {
-      console.error('设置用户设置失败:', error)
+      console.error('Failed to set user setting:', error)
       throw error
     }
   }
 
   /**
-   * 获取用户偏好设置（带缓存和请求去重）
+   * Get user preferences (with cache and request deduplication)
    */
   static async getUserPreferences(userId?: string): Promise<UserPreferences> {
     try {
@@ -485,13 +484,13 @@ export class UserProfileService {
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
-      // 生成缓存键
+      // Generate cache key
       const cacheKey = useSettingsStore.getState().generateCacheKey('userPreferences', targetUserId)
       
-      // 检查缓存
+      // Check cache
       const cached = useSettingsStore.getState().getFromGlobalCache<UserPreferences>(cacheKey)
       
       if (cached.data) {
@@ -499,16 +498,16 @@ export class UserProfileService {
       }
       
       if (cached.promise) {
-        console.log('等待现有的用户偏好设置获取请求')
+        console.log('Waiting for existing user preferences fetch request')
         return cached.promise
       }
 
-      // 创建新的获取Promise
+      // Create new fetch Promise
       const fetchPromise = (async () => {
         try {
           const preferences = await this.getUserSetting('preferences', userId)
           
-          // 返回默认偏好设置，如果用户没有设置
+          // Return default preferences if user hasn't set any
           const defaultPreferences: UserPreferences = {
             theme: 'system',
             currency: 'CNY',
@@ -526,16 +525,16 @@ export class UserProfileService {
 
           const result = preferences ? { ...defaultPreferences, ...preferences } : defaultPreferences
           
-          // 设置缓存
+          // Set cache
           useSettingsStore.getState().setGlobalCache(cacheKey, result)
           return result
         } finally {
-          // 请求完成后清除Promise引用
+          // Clear Promise reference after request completion
           useSettingsStore.getState().clearGlobalCachePromise(cacheKey)
         }
       })();
 
-      // 存储Promise以便去重
+      // Store Promise for deduplication
       useSettingsStore.getState().setGlobalCachePromise(cacheKey, fetchPromise)
       return fetchPromise
     } catch (error) {
@@ -545,7 +544,7 @@ export class UserProfileService {
   }
 
   /**
-   * 更新用户偏好设置
+   * Update user preferences
    */
   static async updateUserPreferences(
     preferences: Partial<UserPreferences>,
@@ -556,7 +555,7 @@ export class UserProfileService {
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
       // 获取当前偏好设置
@@ -577,10 +576,11 @@ export class UserProfileService {
         } : currentPreferences.privacy
       }
 
-      // 保存更新后的偏好设置
+      // Save updated preferences
+      // 保存更新的偏好设置
       await this.setUserSetting('preferences', updatedPreferences, userId)
 
-      // 清除缓存，确保下次获取时能获取最新数据
+      // 清除缓存以确保下次获取最新数据
       const cacheKey = useSettingsStore.getState().generateCacheKey('userPreferences', targetUserId)
       useSettingsStore.getState().clearGlobalCache(cacheKey)
 
@@ -600,7 +600,7 @@ export class UserProfileService {
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
       const { data, error } = await supabase
@@ -632,7 +632,7 @@ export class UserProfileService {
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
       const { error } = await supabase
@@ -665,7 +665,7 @@ export class UserProfileService {
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('用户未登录')
+        throw new Error('User not logged in')
       }
 
       const { error } = await supabase
@@ -701,16 +701,16 @@ export class UserProfileService {
   }
 
   /**
-   * 验证用户配置数据
+   * 验证用户资料数据
    */
   static validateProfileData(data: UpdateUserProfileData): string[] {
     const errors: string[] = []
 
     if (data.display_name !== undefined) {
       if (typeof data.display_name !== 'string') {
-        errors.push('显示名称必须是字符串')
+        errors.push('Display name must be a string')
       } else if (data.display_name.length > 50) {
-        errors.push('显示名称不能超过50个字符')
+        errors.push('Display name cannot exceed 50 characters')
       }
     }
 
@@ -723,7 +723,7 @@ export class UserProfileService {
         'Australia/Melbourne'
       ]
       if (!validTimezones.includes(data.timezone)) {
-        errors.push('无效的时区设置')
+        errors.push('Invalid timezone setting')
       }
     }
 
@@ -734,7 +734,7 @@ export class UserProfileService {
         'pt-BR', 'ru-RU'
       ]
       if (!validLanguages.includes(data.language)) {
-        errors.push('无效的语言设置')
+        errors.push('Invalid language setting')
       }
     }
 

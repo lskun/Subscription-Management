@@ -17,7 +17,7 @@ function ThemeSync() {
     if (!loading && user) {
       // Avoid duplicate calls for the same user
       if (!hasInitialized.current || lastUserId.current !== user.id) {
-        console.log('🎨 ThemeSync: 获取用户设置', { userId: user.id, isFirstTime: !hasInitialized.current })
+        console.log('🎨 ThemeSync: Getting user settings', { userId: user.id, isFirstTime: !hasInitialized.current })
         hasInitialized.current = true
         lastUserId.current = user.id
         fetchSettings()

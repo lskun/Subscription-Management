@@ -53,7 +53,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
   
   const { toast } = useToast()
 
-  // 加载导出预览
+  // Load export preview
   useEffect(() => {
     if (open) {
       loadExportPreview()
@@ -75,7 +75,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }
 
-  // 重置状态
+  // Reset state
   const resetState = () => {
     setIsExporting(false)
     setExportProgress(0)
@@ -83,7 +83,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     setError(null)
   }
 
-  // 处理模态框关闭
+  // Handle modal close
   const handleOpenChange = (open: boolean) => {
     if (!open && !isExporting) {
       resetState()
@@ -91,11 +91,11 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }
 
-  // 执行导出
+  // Execute export
   const handleExport = async () => {
     setIsExporting(true)
     setExportProgress(0)
-    setExportMessage('准备导出...')
+    setExportMessage('Preparing export...')
     setError(null)
 
     try {
@@ -112,11 +112,11 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       })
 
       toast({
-        title: "导出成功",
-        description: `数据已成功导出为 ${format.toUpperCase()} 格式`,
+        title: "Export Successful",
+        description: `Data has been successfully exported as ${format.toUpperCase()} format`,
       })
 
-      // 延迟关闭模态框，让用户看到完成状态
+      // Delay closing modal to let user see completion status
       setTimeout(() => {
         handleOpenChange(false)
       }, 1500)
@@ -127,7 +127,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       setExportMessage('')
       
       toast({
-        title: "导出失败",
+        title: "Export Failed",
         description: error.message,
         variant: "destructive"
       })
@@ -136,7 +136,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
     }
   }
 
-  // 快速导出订阅数据
+  // Quick export subscription data
   const handleQuickExportSubscriptions = async () => {
     setIsExporting(true)
     setError(null)
@@ -145,8 +145,8 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       await dataExportService.exportSubscriptions(format)
       
       toast({
-        title: "导出成功",
-        description: "订阅数据已成功导出",
+        title: "Export Successful",
+        description: "Subscription data has been successfully exported",
       })
 
       handleOpenChange(false)
@@ -155,7 +155,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
       setError(error.message)
       
       toast({
-        title: "导出失败",
+        title: "Export Failed",
         description: error.message,
         variant: "destructive"
       })
@@ -170,15 +170,15 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
-            导出数据
+            Export Data
           </DialogTitle>
           <DialogDescription>
-            选择要导出的数据类型和格式，系统将生成包含您所有数据的文件。
+            Select the data types and format to export, the system will generate a file containing all your data.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
-          {/* 错误提示 */}
+          {/* Error message */}
           {error && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
@@ -186,13 +186,13 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
             </Alert>
           )}
 
-          {/* 导出进度 */}
+          {/* Export progress */}
           {isExporting && (
             <Card>
               <CardContent className="pt-6">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">导出进度</span>
+                    <span className="text-sm font-medium">Export Progress</span>
                     <span className="text-sm text-muted-foreground">{exportProgress}%</span>
                   </div>
                   <Progress value={exportProgress} className="w-full" />
@@ -205,42 +205,42 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
             </Card>
           )}
 
-          {/* 数据预览 */}
+          {/* Data preview */}
           {!isExporting && (
             <>
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">数据概览</CardTitle>
+                  <CardTitle className="text-lg">Data Overview</CardTitle>
                   <CardDescription>
-                    以下是您账户中的数据统计
+                    Statistics of data in your account
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {isLoadingPreview ? (
                     <div className="flex items-center justify-center py-8">
                       <Loader2 className="h-6 w-6 animate-spin" />
-                      <span className="ml-2">正在加载数据统计...</span>
+                      <span className="ml-2">Loading data statistics...</span>
                     </div>
                   ) : preview ? (
                     <div className="grid grid-cols-2 gap-4">
                       <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                        <span className="text-sm font-medium">订阅数据</span>
-                        <span className="text-sm text-muted-foreground">{preview.subscriptionCount} 条</span>
+                        <span className="text-sm font-medium">Subscription Data</span>
+                        <span className="text-sm text-muted-foreground">{preview.subscriptionCount} records</span>
                       </div>
                       <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                        <span className="text-sm font-medium">支付历史</span>
-                        <span className="text-sm text-muted-foreground">{preview.paymentHistoryCount} 条</span>
+                        <span className="text-sm font-medium">Payment History</span>
+                        <span className="text-sm text-muted-foreground">{preview.paymentHistoryCount} records</span>
                       </div>
                       <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                        <span className="text-sm font-medium">分类数据</span>
-                        <span className="text-sm text-muted-foreground">{preview.categoryCount} 条</span>
+                        <span className="text-sm font-medium">Category Data</span>
+                        <span className="text-sm text-muted-foreground">{preview.categoryCount} records</span>
                       </div>
                       <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                        <span className="text-sm font-medium">支付方式</span>
-                        <span className="text-sm text-muted-foreground">{preview.paymentMethodCount} 条</span>
+                        <span className="text-sm font-medium">Payment Methods</span>
+                        <span className="text-sm text-muted-foreground">{preview.paymentMethodCount} records</span>
                       </div>
                       <div className="col-span-2 flex items-center justify-between p-3 bg-primary/10 rounded-lg">
-                        <span className="text-sm font-medium">预计文件大小</span>
+                        <span className="text-sm font-medium">Estimated File Size</span>
                         <span className="text-sm font-semibold">{preview.estimatedSize}</span>
                       </div>
                     </div>
@@ -248,12 +248,12 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
                 </CardContent>
               </Card>
 
-              {/* 导出格式选择 */}
+              {/* Export format selection */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">导出格式</CardTitle>
+                  <CardTitle className="text-lg">Export Format</CardTitle>
                   <CardDescription>
-                    选择导出文件的格式
+                    Select the format for the export file
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -262,28 +262,28 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
                       <RadioGroupItem value="json" id="json" />
                       <Label htmlFor="json" className="flex items-center gap-2 cursor-pointer">
                         <Database className="h-4 w-4" />
-                        JSON 格式
-                        <span className="text-xs text-muted-foreground">（推荐，包含完整数据结构）</span>
+                        JSON Format
+                        <span className="text-xs text-muted-foreground">(Recommended, contains complete data structure)</span>
                       </Label>
                     </div>
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="csv" id="csv" />
                       <Label htmlFor="csv" className="flex items-center gap-2 cursor-pointer">
                         <FileText className="h-4 w-4" />
-                        CSV 格式
-                        <span className="text-xs text-muted-foreground">（适合在Excel中查看）</span>
+                        CSV Format
+                        <span className="text-xs text-muted-foreground">(Suitable for viewing in Excel)</span>
                       </Label>
                     </div>
                   </RadioGroup>
                 </CardContent>
               </Card>
 
-              {/* 数据选择 */}
+              {/* Data selection */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">包含数据</CardTitle>
+                  <CardTitle className="text-lg">Include Data</CardTitle>
                   <CardDescription>
-                    选择要包含在导出文件中的数据类型
+                    Select the data types to include in the export file
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -294,7 +294,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
                       disabled={true}
                     />
                     <Label htmlFor="subscriptions" className="text-sm font-medium">
-                      订阅数据 <span className="text-xs text-muted-foreground">（必选）</span>
+                      Subscription Data <span className="text-xs text-muted-foreground">(Required)</span>
                     </Label>
                   </div>
                   
@@ -305,7 +305,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
                       onCheckedChange={(checked) => setIncludePaymentHistory(checked === true)}
                     />
                     <Label htmlFor="payment-history" className="text-sm font-medium">
-                      支付历史
+                      Payment History
                     </Label>
                   </div>
                   
@@ -316,7 +316,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
                       onCheckedChange={(checked) => setIncludeCategories(checked === true)}
                     />
                     <Label htmlFor="categories" className="text-sm font-medium">
-                      分类数据
+                      Category Data
                     </Label>
                   </div>
                   
@@ -327,7 +327,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
                       onCheckedChange={(checked) => setIncludePaymentMethods(checked === true)}
                     />
                     <Label htmlFor="payment-methods" className="text-sm font-medium">
-                      支付方式
+                      Payment Methods
                     </Label>
                   </div>
                   
@@ -338,7 +338,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
                       onCheckedChange={(checked) => setIncludeUserSettings(checked === true)}
                     />
                     <Label htmlFor="user-settings" className="text-sm font-medium">
-                      用户设置
+                      User Settings
                     </Label>
                   </div>
                 </CardContent>
@@ -351,15 +351,15 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
           {!isExporting && (
             <>
               <Button variant="outline" onClick={() => handleOpenChange(false)}>
-                取消
+                Cancel
               </Button>
               <Button variant="outline" onClick={handleQuickExportSubscriptions}>
                 <Download className="h-4 w-4 mr-2" />
-                仅导出订阅
+                Export Subscriptions Only
               </Button>
               <Button onClick={handleExport}>
                 <Download className="h-4 w-4 mr-2" />
-                导出全部数据
+                Export All Data
               </Button>
             </>
           )}
@@ -367,7 +367,7 @@ export function ExportModal({ open, onOpenChange }: ExportModalProps) {
           {isExporting && exportProgress === 100 && (
             <div className="flex items-center gap-2 text-green-600">
               <CheckCircle className="h-4 w-4" />
-              <span className="text-sm font-medium">导出完成</span>
+              <span className="text-sm font-medium">Export Complete</span>
             </div>
           )}
         </DialogFooter>

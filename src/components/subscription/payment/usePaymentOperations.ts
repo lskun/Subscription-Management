@@ -14,15 +14,15 @@ export const usePaymentOperations = (
       await supabasePaymentHistoryService.createPaymentHistory(paymentData)
       
       toast({
-        title: "成功",
-        description: "支付记录创建成功",
+        title: "Payment record added",
+        description: "Payment record created successfully",
       })
       fetchPaymentHistory()
       return true
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '创建支付记录失败'
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add payment record, please try again.'
       toast({
-        title: "错误",
+        title: "Error adding payment record",
         description: errorMessage,
         variant: "destructive",
       })
@@ -35,15 +35,15 @@ export const usePaymentOperations = (
       await supabasePaymentHistoryService.updatePaymentHistory(paymentId, paymentData)
       
       toast({
-        title: "成功",
-        description: "支付记录更新成功",
+        title: "Payment record updated",
+        description: "Payment record updated successfully",
       })
       fetchPaymentHistory()
       return true
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '更新支付记录失败'
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update payment record, please try again.'
       toast({
-        title: "错误",
+        title: "Error updating payment record",
         description: errorMessage,
         variant: "destructive",
       })
@@ -58,14 +58,14 @@ export const usePaymentOperations = (
       await supabasePaymentHistoryService.deletePaymentHistory(deleteTarget.id)
       
       toast({
-        title: "成功",
-        description: "支付记录删除成功",
+        title: "Payment record deleted",
+        description: "Payment record deleted successfully",
       })
       fetchPaymentHistory()
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '删除支付记录失败'
+      const errorMessage = err instanceof Error ? err.message : 'Failed to delete payment record, please try again.'
       toast({
-        title: "错误",
+        title: "Error deleting payment record",
         description: errorMessage,
         variant: "destructive",
       })
@@ -75,9 +75,9 @@ export const usePaymentOperations = (
   }
   
   const deleteConfirmation = useConfirmation({
-    title: "删除支付记录",
-    description: deleteTarget ? `确定要删除 ${deleteTarget.name} 的这条支付记录吗？此操作无法撤销。` : "",
-    confirmText: "删除",
+    title: "Delete payment record",
+    description: deleteTarget ? `Are you sure you want to delete ${deleteTarget.name}? This action cannot be undone.` : "",
+    confirmText: "Delete",
     onConfirm: handleDeletePayment,
   })
   

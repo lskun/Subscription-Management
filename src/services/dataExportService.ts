@@ -50,7 +50,7 @@ export class DataExportService {
     const error = null;
     
     if (error || !user) {
-      throw new Error('用户未登录，无法导出数据')
+      throw new Error('User is not logged in, cannot export data')
     }
     
     return user.id
@@ -70,12 +70,12 @@ export class DataExportService {
       options.onProgress?.(progress, message)
     }
 
-    updateProgress(1, '正在获取订阅数据...')
+    updateProgress(1, 'Fetching subscription data...')
     
     // 获取订阅数据
     const subscriptions = await supabaseSubscriptionService.getAllSubscriptions()
     
-    updateProgress(2, '正在获取支付历史...')
+    updateProgress(2, 'Fetching payment history...')
     
     // 获取支付历史（如果需要）
     let paymentHistory: any[] = []
@@ -83,7 +83,7 @@ export class DataExportService {
       paymentHistory = await supabasePaymentHistoryService.getAllPaymentHistory()
     }
     
-    updateProgress(3, '正在获取分类数据...')
+    updateProgress(3, 'Fetching category data...')
     
     // 获取分类数据（如果需要）
     let categories: any[] = []
@@ -91,7 +91,7 @@ export class DataExportService {
       categories = await supabaseCategoriesService.getAllCategories()
     }
     
-    updateProgress(4, '正在获取支付方式...')
+    updateProgress(4, 'Fetching payment methods...')
     
     // 获取支付方式（如果需要）
     let paymentMethods: any[] = []
@@ -105,7 +105,7 @@ export class DataExportService {
       userSettings = await supabaseUserSettingsService.getUserSettings()
     }
     
-    updateProgress(5, '正在整理导出数据...')
+    updateProgress(5, 'Organizing export data...')
     
     const exportData: ExportData = {
       subscriptions,
@@ -132,38 +132,38 @@ export class DataExportService {
     
     // 导出订阅数据
     if (data.subscriptions.length > 0) {
-      csvSections.push('# 订阅数据')
+      csvSections.push('# Subscription Data')
       csvSections.push(this.convertSubscriptionsToCSV(data.subscriptions))
       csvSections.push('')
     }
     
     // 导出支付历史
     if (data.paymentHistory.length > 0) {
-      csvSections.push('# 支付历史')
+      csvSections.push('# Payment History')
       csvSections.push(this.convertPaymentHistoryToCSV(data.paymentHistory))
       csvSections.push('')
     }
     
     // 导出分类数据
     if (data.categories.length > 0) {
-      csvSections.push('# 分类数据')
+      csvSections.push('# Category Data')
       csvSections.push(this.convertCategoriesToCSV(data.categories))
       csvSections.push('')
     }
     
     // 导出支付方式
     if (data.paymentMethods.length > 0) {
-      csvSections.push('# 支付方式')
+      csvSections.push('# Payment Methods')
       csvSections.push(this.convertPaymentMethodsToCSV(data.paymentMethods))
       csvSections.push('')
     }
     
     // 添加导出信息
-    csvSections.push('# 导出信息')
-    csvSections.push(`导出日期,${data.exportInfo.exportDate}`)
-    csvSections.push(`用户ID,${data.exportInfo.userId}`)
-    csvSections.push(`版本,${data.exportInfo.version}`)
-    csvSections.push(`总记录数,${data.exportInfo.totalRecords}`)
+    csvSections.push('# Export Information')
+    csvSections.push(`Export Date,${data.exportInfo.exportDate}`)
+    csvSections.push(`User ID,${data.exportInfo.userId}`)
+    csvSections.push(`Version,${data.exportInfo.version}`)
+    csvSections.push(`Total Records,${data.exportInfo.totalRecords}`)
     
     return csvSections.join('\n')
   }
@@ -173,9 +173,9 @@ export class DataExportService {
    */
   private convertSubscriptionsToCSV(subscriptions: any[]): string {
     const headers = [
-      'ID', '名称', '计划', '计费周期', '下次计费日期', '上次计费日期',
-      '金额', '货币', '支付方式', '开始日期', '状态', '分类',
-      '续费类型', '备注', '网站'
+      'ID', 'Name', 'Plan', 'Billing Cycle', 'Next Billing Date', 'Last Billing Date',
+      'Amount', 'Currency', 'Payment Method', 'Start Date', 'Status', 'Category',
+      'Renewal Type', 'Notes', 'Website'
     ].join(',')
     
     const rows = subscriptions.map(sub => [
@@ -204,8 +204,8 @@ export class DataExportService {
    */
   private convertPaymentHistoryToCSV(paymentHistory: any[]): string {
     const headers = [
-      'ID', '订阅名称', '支付日期', '支付金额', '货币',
-      '计费周期开始', '计费周期结束', '状态', '备注'
+      'ID', 'Subscription Name', 'Payment Date', 'Payment Amount', 'Currency',
+      'Billing Period Start', 'Billing Period End', 'Status', 'Notes'
     ].join(',')
     
     const rows = paymentHistory.map(payment => [
@@ -227,13 +227,13 @@ export class DataExportService {
    * 将分类数据转换为CSV
    */
   private convertCategoriesToCSV(categories: any[]): string {
-    const headers = ['ID', '值', '标签', '是否默认'].join(',')
+    const headers = ['ID', 'Value', 'Label', 'Is Default'].join(',')
     
     const rows = categories.map(category => [
       category.id,
       category.value,
       `"${category.label.replace(/"/g, '""')}"`,
-      category.isDefault ? '是' : '否'
+      category.isDefault ? 'Yes' : 'No'
     ].join(','))
     
     return [headers, ...rows].join('\n')
@@ -243,13 +243,13 @@ export class DataExportService {
    * 将支付方式转换为CSV
    */
   private convertPaymentMethodsToCSV(paymentMethods: any[]): string {
-    const headers = ['ID', '值', '标签', '是否默认'].join(',')
+    const headers = ['ID', 'Value', 'Label', 'Is Default'].join(',')
     
     const rows = paymentMethods.map(method => [
       method.id,
       method.value,
       `"${method.label.replace(/"/g, '""')}"`,
-      method.isDefault ? '是' : '否'
+      method.isDefault ? 'Yes' : 'No'
     ].join(','))
     
     return [headers, ...rows].join('\n')
@@ -297,11 +297,11 @@ export class DataExportService {
         this.downloadFile(jsonContent, filename, 'application/json;charset=utf-8')
       }
       
-      options.onProgress?.(100, '导出完成')
+      options.onProgress?.(100, 'Export completed')
       
     } catch (error: any) {
       console.error('Export failed:', error)
-      throw new Error(`导出失败: ${error.message}`)
+      throw new Error(`Export failed: ${error.message}`)
     }
   }
 

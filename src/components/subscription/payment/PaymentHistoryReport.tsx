@@ -30,8 +30,9 @@ import {
   FileText
 } from "lucide-react"
 import { supabasePaymentHistoryService, PaymentHistoryRecord } from "@/services/supabasePaymentHistoryService"
-import { formatWithUserCurrency } from "@/utils/currency"
+import { formatWithUserCurrency, convertCurrency } from "@/utils/currency"
 import { useToast } from "@/hooks/use-toast"
+import { useSettingsStore } from "@/store/settingsStore"
 
 interface PaymentHistoryReportProps {
   subscriptionId?: string
@@ -73,10 +74,10 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
       
       setPayments(paymentsData)
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '获取支付数据失败'
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch payment data'
       setError(errorMessage)
       toast({
-        title: "错误",
+        title: "Error",
         description: errorMessage,
         variant: "destructive",
       })
@@ -91,6 +92,7 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
 
   // 生成月度数据
   const generateMonthlyData = (): MonthlyData[] => {
+    const { currency: userCurrency, exchangeRates } = useSettingsStore.getState()
     const monthlyMap = new Map<string, { totalAmount: number; totalPayments: number; successfulPayments: number }>()
     
     // 初始化12个月的数据
@@ -108,8 +110,15 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
         
         if (data) {
           data.totalPayments++
-          if (payment.status === 'succeeded') {
-            data.totalAmount += payment.amountPaid
+          if (payment.status === 'success') {
+            // 将支付金额转换为用户设置的默认货币
+            const convertedAmount = convertCurrency(
+              payment.amountPaid,
+              payment.currency,
+              userCurrency,
+              exchangeRates
+            )
+            data.totalAmount += convertedAmount
             data.successfulPayments++
           }
         }
@@ -117,7 +126,7 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
 
     // 转换为图表数据
     return Array.from(monthlyMap.entries()).map(([monthKey, data]) => ({
-      month: `${monthKey.split('-')[1]}月`,
+      month: `${monthKey.split('-')[1]}`,
       totalAmount: Math.round(data.totalAmount * 100) / 100,
       totalPayments: data.totalPayments,
       successRate: data.totalPayments > 0 ? Math.round((data.successfulPayments / data.totalPayments) * 100) : 0
@@ -134,15 +143,15 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
     })
 
     const colors = {
-      succeeded: '#22c55e',
+      success: '#22c55e',
       failed: '#ef4444',
-      refunded: '#f59e0b'
+      pending: '#f59e0b'
     }
 
     const statusNames = {
-      succeeded: '成功',
-      failed: '失败',
-      refunded: '退款'
+      success: 'Success',
+      failed: 'Failed',
+      pending: 'Pending'
     }
 
     return Array.from(statusMap.entries()).map(([status, count]) => ({
@@ -154,15 +163,28 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
 
   // 导出报告
   const exportReport = () => {
+    const { currency: userCurrency, exchangeRates } = useSettingsStore.getState()
     const monthlyData = generateMonthlyData()
     const statusData = generateStatusData()
+    
+    const totalAmount = payments
+      .filter(p => p.status === 'success')
+      .reduce((sum, p) => {
+        const convertedAmount = convertCurrency(
+          p.amountPaid,
+          p.currency,
+          userCurrency,
+          exchangeRates
+        )
+        return sum + convertedAmount
+      }, 0)
     
     const reportData = {
       year: selectedYear,
       summary: {
         totalPayments: payments.length,
-        totalAmount: payments.filter(p => p.status === 'succeeded').reduce((sum, p) => sum + p.amountPaid, 0),
-        successRate: payments.length > 0 ? Math.round((payments.filter(p => p.status === 'succeeded').length / payments.length) * 100) : 0
+        totalAmount,
+        successRate: payments.length > 0 ? Math.round((payments.filter(p => p.status === 'success').length / payments.length) * 100) : 0
       },
       monthlyData,
       statusData,
@@ -180,8 +202,8 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
     URL.revokeObjectURL(url)
 
     toast({
-      title: "成功",
-      description: "支付报告已导出",
+      title: "Success",
+      description: "Payment report exported successfully",
     })
   }
 
@@ -224,10 +246,10 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
         <div>
           <h3 className="text-lg font-semibold flex items-center gap-2">
             <BarChart className="h-5 w-5" />
-            支付历史报告
+            Payment History Report
           </h3>
           <p className="text-sm text-muted-foreground">
-            查看支付趋势和统计分析
+            View payment trends and statistical analysis
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -238,7 +260,7 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
             <SelectContent>
               {availableYears.map(year => (
                 <SelectItem key={year} value={year}>
-                  {year}年
+                  {year}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -250,7 +272,7 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
             className="gap-2"
           >
             <Download className="h-4 w-4" />
-            导出
+            Export
           </Button>
         </div>
       </div>
@@ -262,7 +284,7 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <TrendingUp className="h-4 w-4" />
-              月度支付趋势
+              Monthly Payment Trends
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -274,7 +296,7 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
                 <Tooltip 
                   formatter={(value, name) => [
                     name === 'totalAmount' ? formatWithUserCurrency(Number(value), 'CNY') : value,
-                    name === 'totalAmount' ? '支付金额' : '支付次数'
+                    name === 'totalAmount' ? 'Payment Amount' : 'Payment Count'
                   ]}
                 />
                 <Bar dataKey="totalAmount" fill="#3b82f6" name="totalAmount" />
@@ -288,7 +310,7 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <DollarSign className="h-4 w-4" />
-              支付状态分布
+              Payment Status Distribution
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -338,12 +360,23 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
                 <DollarSign className="h-4 w-4 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">总支付金额</p>
+                <p className="text-sm text-muted-foreground">Total Payment Amount</p>
                 <p className="text-lg font-semibold">
-                  {formatWithUserCurrency(
-                    payments.filter(p => p.status === 'succeeded').reduce((sum, p) => sum + p.amountPaid, 0),
-                    'CNY'
-                  )}
+                  {(() => {
+                    const { currency: userCurrency, exchangeRates } = useSettingsStore.getState()
+                    const totalAmount = payments
+                      .filter(p => p.status === 'success')
+                      .reduce((sum, p) => {
+                        const convertedAmount = convertCurrency(
+                          p.amountPaid,
+                          p.currency,
+                          userCurrency,
+                          exchangeRates
+                        )
+                        return sum + convertedAmount
+                      }, 0)
+                    return formatWithUserCurrency(totalAmount, userCurrency)
+                  })()}
                 </p>
               </div>
             </div>
@@ -357,7 +390,7 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
                 <Calendar className="h-4 w-4 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">支付次数</p>
+                <p className="text-sm text-muted-foreground">Payment Count</p>
                 <p className="text-lg font-semibold">{payments.length}</p>
               </div>
             </div>
@@ -371,10 +404,10 @@ export function PaymentHistoryReport({ subscriptionId, className }: PaymentHisto
                 <TrendingUp className="h-4 w-4 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">成功率</p>
+                <p className="text-sm text-muted-foreground">Success Rate</p>
                 <p className="text-lg font-semibold">
                   {payments.length > 0 
-                    ? Math.round((payments.filter(p => p.status === 'succeeded').length / payments.length) * 100)
+                    ? Math.round((payments.filter(p => p.status === 'success').length / payments.length) * 100)
                     : 0
                   }%
                 </p>

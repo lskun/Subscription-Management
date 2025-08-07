@@ -455,3 +455,149 @@ function parseCSVLine(line: string): string[] {
   
   return result
 }
+
+/**
+ * 验证支付记录的账单周期是否与订阅的账单周期匹配
+ * @param billingPeriodStart - 账单周期开始日期
+ * @param billingPeriodEnd - 账单周期结束日期
+ * @param subscriptionBillingCycle - 订阅的账单周期
+ * @returns 是否匹配
+ */
+export function validateBillingCycle(
+  billingPeriodStart: string,
+  billingPeriodEnd: string,
+  subscriptionBillingCycle: BillingCycle
+): boolean {
+  const startDate = new Date(billingPeriodStart)
+  const endDate = new Date(billingPeriodEnd)
+  
+  // 计算实际的账单周期天数
+  const actualDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+  
+  // 根据订阅的账单周期确定期望的天数范围
+  let expectedDaysRange: { min: number; max: number }
+  
+  switch (subscriptionBillingCycle) {
+    case 'monthly':
+      // 月度账单：28-31天
+      expectedDaysRange = { min: 28, max: 31 }
+      break
+    case 'quarterly':
+      // 季度账单：89-92天（3个月）
+      expectedDaysRange = { min: 89, max: 92 }
+      break
+    case 'yearly':
+      // 年度账单：365-366天
+      expectedDaysRange = { min: 365, max: 366 }
+      break
+    default:
+      return false
+  }
+  
+  return actualDays >= expectedDaysRange.min && actualDays <= expectedDaysRange.max
+}
+
+/**
+ * 支付记录更新结果类型
+ */
+export interface PaymentUpdateResult {
+  shouldUpdate: boolean
+  reason: string
+  isHistoricalRecord: boolean
+}
+
+/**
+ * 检查支付记录是否应该更新订阅的 last_billing_date，并返回详细的原因说明
+ * @param paymentDate - 支付日期
+ * @param paymentStatus - 支付状态
+ * @param billingPeriodStart - 账单周期开始日期
+ * @param billingPeriodEnd - 账单周期结束日期
+ * @param currentLastBillingDate - 当前的 last_billing_date
+ * @param subscriptionBillingCycle - 订阅的账单周期
+ * @returns 更新结果和详细原因
+ */
+export function shouldUpdateLastBillingDateWithReason(
+  paymentDate: string,
+  paymentStatus: string,
+  billingPeriodStart: string,
+  billingPeriodEnd: string,
+  currentLastBillingDate: string | null,
+  subscriptionBillingCycle: BillingCycle
+): PaymentUpdateResult {
+  const paymentDateTime = new Date(paymentDate)
+  const now = new Date()
+  
+  // 1. 只有成功的支付才能更新 last_billing_date
+  if (paymentStatus !== 'success') {
+    return {
+      shouldUpdate: false,
+      reason: 'Only successful payment records will update the last billing date',
+      isHistoricalRecord: false
+    }
+  }
+  
+  // 2. 支付日期不能是未来日期
+  if (paymentDateTime > now) {
+    return {
+      shouldUpdate: false,
+      reason: 'Future payment records will not update the last billing date',
+      isHistoricalRecord: false
+    }
+  }
+  
+  // 3. 支付日期必须晚于当前的 last_billing_date
+  if (currentLastBillingDate) {
+    const currentLastBillingDateTime = new Date(currentLastBillingDate)
+    if (paymentDateTime <= currentLastBillingDateTime) {
+      return {
+        shouldUpdate: false,
+        reason: 'This payment record is earlier than the current last billing date, and will be added as a historical record',
+        isHistoricalRecord: true
+      }
+    }
+  }
+  
+  // 4. 验证账单周期是否匹配
+  if (!validateBillingCycle(billingPeriodStart, billingPeriodEnd, subscriptionBillingCycle)) {
+    return {
+      shouldUpdate: false,
+      reason: 'The billing cycle of this payment record does not match the subscription billing cycle. Please check the billing cycle dates.',
+      isHistoricalRecord: false
+    }
+  }
+  
+  return {
+    shouldUpdate: true,
+    reason: 'This payment record has been successfully added, and the subscription last billing date has been updated.',
+    isHistoricalRecord: false
+  }
+}
+
+/**
+ * 检查支付记录是否应该更新订阅的 last_billing_date
+ * @param paymentDate - 支付日期
+ * @param paymentStatus - 支付状态
+ * @param billingPeriodStart - 账单周期开始日期
+ * @param billingPeriodEnd - 账单周期结束日期
+ * @param currentLastBillingDate - 当前的 last_billing_date
+ * @param subscriptionBillingCycle - 订阅的账单周期
+ * @returns 是否应该更新 last_billing_date
+ */
+export function shouldUpdateLastBillingDate(
+  paymentDate: string,
+  paymentStatus: string,
+  billingPeriodStart: string,
+  billingPeriodEnd: string,
+  currentLastBillingDate: string | null,
+  subscriptionBillingCycle: BillingCycle
+): boolean {
+  const result = shouldUpdateLastBillingDateWithReason(
+    paymentDate,
+    paymentStatus,
+    billingPeriodStart,
+    billingPeriodEnd,
+    currentLastBillingDate,
+    subscriptionBillingCycle
+  )
+  return result.shouldUpdate
+}

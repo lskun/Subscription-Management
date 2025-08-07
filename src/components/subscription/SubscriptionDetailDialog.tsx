@@ -339,6 +339,12 @@ const ContentComponent = ({
         <PaymentHistorySection
           subscriptionId={id}
           subscriptionName={name}
+          prefilledData={{
+            amount: amount,
+            currency: currency,
+            billingCycle: billingCycle,
+            nextBillingDate: nextBillingDate || undefined
+          }}
         />
       </div>
     </div>

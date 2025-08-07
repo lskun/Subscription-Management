@@ -42,7 +42,7 @@ export class SupabasePaymentMethodsService {
     console.info('从数据库获取的支付方式数据:', data)
     if (error) {
       console.error('Error fetching payment methods:', error)
-      throw new Error(`获取支付方式列表失败: ${error.message}`)
+      throw new Error(`Failed to fetch payment methods: ${error.message}`)
     }
 
     // 缓存数据
@@ -66,7 +66,7 @@ export class SupabasePaymentMethodsService {
         return null // 记录不存在
       }
       console.error('Error fetching payment method:', error)
-      throw new Error(`获取支付方式详情失败: ${error.message}`)
+      throw new Error(`Failed to fetch payment method details: ${error.message}`)
     }
 
     return data
@@ -79,7 +79,7 @@ export class SupabasePaymentMethodsService {
     // 获取当前用户ID
     const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
-      throw new Error('用户未登录')
+      throw new Error('User not logged in')
     }
 
     // 检查是否存在同名的系统默认支付方式
@@ -92,11 +92,11 @@ export class SupabasePaymentMethodsService {
 
     if (checkDefaultError) {
       console.error('Error checking default payment method:', checkDefaultError)
-      throw new Error(`检查默认支付方式失败: ${checkDefaultError.message}`)
+      throw new Error(`Failed to check default payment method: ${checkDefaultError.message}`)
     }
 
     if (existingDefault) {
-      throw new Error(`无法创建支付方式：已存在同名的系统默认支付方式 "${existingDefault.label}"`)
+      throw new Error(`Cannot create payment method: A default payment method with the same name "${existingDefault.label}" already exists.`)
     }
 
     // 检查是否存在同名的用户自定义支付方式
@@ -110,11 +110,11 @@ export class SupabasePaymentMethodsService {
 
     if (checkUserError) {
       console.error('Error checking user payment method:', checkUserError)
-      throw new Error(`检查用户支付方式失败: ${checkUserError.message}`)
+      throw new Error(`Failed to check user payment method: ${checkUserError.message}`)
     }
 
     if (existingUser) {
-      throw new Error(`该支付方式已存在：您已经创建了名为 "${existingUser.label}" 的支付方式`)
+      throw new Error(`Payment method with the same name "${existingUser.label}" already exists.`)
     }
 
     // 创建新支付方式
@@ -132,9 +132,9 @@ export class SupabasePaymentMethodsService {
     if (error) {
       console.error('Error creating payment method:', error)
       if (error.code === '23505') {
-        throw new Error('该支付方式已存在')
+        throw new Error('Payment method with the same name already exists.')
       }
-      throw new Error(`创建支付方式失败: ${error.message}`)
+      throw new Error(`Failed to create payment method: ${error.message}`)
     }
 
     // 清除缓存
@@ -150,7 +150,7 @@ export class SupabasePaymentMethodsService {
     // 获取当前用户ID
     const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
-      throw new Error('用户未登录')
+      throw new Error('User not logged in')
     }
 
     // 如果要更新value，需要检查冲突
@@ -165,11 +165,11 @@ export class SupabasePaymentMethodsService {
 
       if (checkDefaultError) {
         console.error('Error checking default payment method:', checkDefaultError)
-        throw new Error(`检查默认支付方式失败: ${checkDefaultError.message}`)
+        throw new Error(`Failed to check default payment method: ${checkDefaultError.message}`)
       }
 
       if (existingDefault) {
-        throw new Error(`无法更新支付方式：已存在同名的系统默认支付方式 "${existingDefault.label}"`)
+        throw new Error(`Cannot update payment method: A default payment method with the same name "${existingDefault.label}" already exists.`)
       }
 
       // 检查是否存在同名的其他用户自定义支付方式（排除当前支付方式）
@@ -184,11 +184,11 @@ export class SupabasePaymentMethodsService {
 
       if (checkUserError) {
         console.error('Error checking user payment method:', checkUserError)
-        throw new Error(`检查用户支付方式失败: ${checkUserError.message}`)
+        throw new Error(`Failed to check user payment method: ${checkUserError.message}`)
       }
 
       if (existingUser) {
-        throw new Error(`该支付方式已存在：您已经创建了名为 "${existingUser.label}" 的支付方式`)
+        throw new Error(`Payment method with the same name "${existingUser.label}" already exists.`)
       }
     }
 
@@ -204,9 +204,9 @@ export class SupabasePaymentMethodsService {
     if (error) {
       console.error('Error updating payment method:', error)
       if (error.code === '23505') {
-        throw new Error('该支付方式值已存在')
+        throw new Error('Payment method with the same value already exists.')
       }
-      throw new Error(`更新支付方式失败: ${error.message}`)
+      throw new Error(`Failed to update payment method: ${error.message}`)
     }
 
     // 清除缓存
@@ -222,7 +222,7 @@ export class SupabasePaymentMethodsService {
     // 获取当前用户ID
     const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
-      throw new Error('用户未登录')
+      throw new Error('User not logged in')
     }
 
     // 检查是否有订阅使用此支付方式
@@ -234,11 +234,11 @@ export class SupabasePaymentMethodsService {
 
     if (checkError) {
       console.error('Error checking payment method usage:', checkError)
-      throw new Error(`检查支付方式使用情况失败: ${checkError.message}`)
+      throw new Error(`Failed to check payment method usage: ${checkError.message}`)
     }
 
     if (subscriptions && subscriptions.length > 0) {
-      throw new Error('该支付方式正在被订阅使用，无法删除')
+      throw new Error('Payment method is currently in use by a subscription and cannot be deleted.')
     }
 
     const { error } = await supabase
@@ -249,7 +249,7 @@ export class SupabasePaymentMethodsService {
 
     if (error) {
       console.error('Error deleting payment method:', error)
-      throw new Error(`删除支付方式失败: ${error.message}`)
+      throw new Error(`Failed to delete payment method: ${error.message}`)
     }
 
     // 清除缓存
@@ -263,7 +263,7 @@ export class SupabasePaymentMethodsService {
     // 获取当前用户ID
     const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
-      throw new Error('用户未登录')
+      throw new Error('User not logged in')
     }
 
     // 首先尝试查找用户自定义支付方式
@@ -277,7 +277,7 @@ export class SupabasePaymentMethodsService {
 
     if (userError2) {
       console.error('Error fetching user payment method by value:', userError2)
-      throw new Error(`根据值获取用户支付方式失败: ${userError2.message}`)
+      throw new Error(`Failed to fetch user payment method by value: ${userError2.message}`)
     }
 
     if (userPaymentMethod) {
@@ -294,7 +294,7 @@ export class SupabasePaymentMethodsService {
 
     if (defaultError) {
       console.error('Error fetching default payment method by value:', defaultError)
-      throw new Error(`根据值获取默认支付方式失败: ${defaultError.message}`)
+      throw new Error(`Failed to fetch default payment method by value: ${defaultError.message}`)
     }
 
     return defaultPaymentMethod
