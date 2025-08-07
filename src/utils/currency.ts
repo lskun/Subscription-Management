@@ -99,7 +99,6 @@ export function formatWithUserCurrency(
 ): string {
   const { currency: userCurrency, showOriginalCurrency } = useSettingsStore.getState()
   
-  console.info(`Formatting ${amount} ${originalCurrency} to ${userCurrency}`)
   // Convert to user's preferred currency
   const convertedAmount = convertCurrency(amount, originalCurrency, userCurrency)
   

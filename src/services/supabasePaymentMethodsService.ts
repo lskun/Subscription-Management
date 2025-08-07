@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { useSettingsStore } from '@/store/settingsStore'
 
 export interface PaymentMethodOption {
   id: string
@@ -16,18 +17,38 @@ export class SupabasePaymentMethodsService {
    * 获取所有可用支付方式（系统默认 + 用户自定义）
    */
   async getAllPaymentMethods(): Promise<PaymentMethodOption[]> {
+    // 获取当前用户ID
+    const user = await useSettingsStore.getState().getCurrentUser();
+    if (!user) {
+      throw new Error('用户未登录')
+    }
+
+    // 从缓存中获取
+    const cacheKey = useSettingsStore.getState().generateCacheKey('payment_methods', user.id)
+    const cachedData = useSettingsStore.getState().getFromGlobalCache<PaymentMethodOption[]>(cacheKey)
+
+    if (cachedData.data) {
+      console.info('🎯 使用缓存的支付方式数据: ' + cacheKey)
+      return cachedData.data
+    }
+
     const { data, error } = await supabase
       .from('payment_methods')
       .select('id, value, label, is_default')
+      .or(`is_default.eq.true,user_id.eq.${user.id}`)
       .order('is_default', { ascending: false }) // 默认支付方式在前
       .order('label', { ascending: true })
 
+    console.info('从数据库获取的支付方式数据:', data)
     if (error) {
       console.error('Error fetching payment methods:', error)
       throw new Error(`获取支付方式列表失败: ${error.message}`)
     }
 
-    return data || []
+    // 缓存数据
+    useSettingsStore.getState().setGlobalCache(cacheKey, data)
+
+    return data
   }
 
   /**
@@ -56,7 +77,6 @@ export class SupabasePaymentMethodsService {
    */
   async createPaymentMethod(paymentMethodData: { value: string; label: string }): Promise<PaymentMethodOption> {
     // 获取当前用户ID
-    const { useSettingsStore } = await import('@/store/settingsStore');
     const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
@@ -117,6 +137,9 @@ export class SupabasePaymentMethodsService {
       throw new Error(`创建支付方式失败: ${error.message}`)
     }
 
+    // 清除缓存
+    useSettingsStore.getState().clearGlobalCache(useSettingsStore.getState().generateCacheKey('payment_methods', user.id))
+
     return data
   }
 
@@ -125,7 +148,6 @@ export class SupabasePaymentMethodsService {
    */
   async updatePaymentMethod(id: string, updateData: { value?: string; label?: string }): Promise<PaymentMethodOption> {
     // 获取当前用户ID
-    const { useSettingsStore } = await import('@/store/settingsStore');
     const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
@@ -187,6 +209,9 @@ export class SupabasePaymentMethodsService {
       throw new Error(`更新支付方式失败: ${error.message}`)
     }
 
+    // 清除缓存
+    useSettingsStore.getState().clearGlobalCache(useSettingsStore.getState().generateCacheKey('payment_methods', user.id))
+
     return data
   }
 
@@ -194,6 +219,12 @@ export class SupabasePaymentMethodsService {
    * 删除用户自定义支付方式
    */
   async deletePaymentMethod(id: string): Promise<void> {
+    // 获取当前用户ID
+    const user = await useSettingsStore.getState().getCurrentUser();
+    if (!user) {
+      throw new Error('用户未登录')
+    }
+
     // 检查是否有订阅使用此支付方式
     const { data: subscriptions, error: checkError } = await supabase
       .from('subscriptions')
@@ -220,6 +251,9 @@ export class SupabasePaymentMethodsService {
       console.error('Error deleting payment method:', error)
       throw new Error(`删除支付方式失败: ${error.message}`)
     }
+
+    // 清除缓存
+    useSettingsStore.getState().clearGlobalCache(useSettingsStore.getState().generateCacheKey('payment_methods', user.id))
   }
 
   /**
@@ -227,7 +261,6 @@ export class SupabasePaymentMethodsService {
    */
   async getPaymentMethodByValue(value: string): Promise<PaymentMethodOption | null> {
     // 获取当前用户ID
-    const { useSettingsStore } = await import('@/store/settingsStore');
     const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')

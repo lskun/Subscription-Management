@@ -215,7 +215,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     currency TEXT NOT NULL DEFAULT 'CNY',
     payment_method_id UUID NOT NULL REFERENCES payment_methods(id),
     start_date DATE,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'cancelled')),
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'trial', 'cancelled')),
     category_id UUID NOT NULL REFERENCES categories(id),
     renewal_type TEXT NOT NULL DEFAULT 'manual' CHECK (renewal_type IN ('auto', 'manual')),
     notes TEXT,

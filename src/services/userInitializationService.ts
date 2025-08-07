@@ -80,23 +80,29 @@ export class UserInitializationService {
   /**
    * 检查用户是否已经初始化
    */
+  /**
+   * 检查用户是否已初始化
+   * 通过缓存优化减少数据库查询
+   */
   static async isUserInitialized(userId: string): Promise<boolean> {
     try {
       // 首先尝试从 settingsStore 的全局缓存中获取用户配置
       const { useSettingsStore } = await import('@/store/settingsStore')
       const store = useSettingsStore.getState()
-      const cacheKey = store.generateCacheKey('user_profile', userId)
-      const cachedResult = store.getFromGlobalCache<any>(cacheKey)
+      const profileCacheKey = store.generateCacheKey('user_profile', userId)
+      
+      const cachedProfileResult = store.getFromGlobalCache<any>(profileCacheKey)
       
       let hasProfile = false
       
-      if (cachedResult.data) {
+      // 检查用户配置缓存
+      if (cachedProfileResult.data) {
         // 使用缓存中的数据
         hasProfile = true
         console.log('使用缓存检查用户配置存在性')
       } else {
         // 缓存不存在，直接查询数据库
-        console.log('🔍 [DEBUG] isUserInitialized: 缓存未命中，查询 user_profiles 表', { userId, cacheKey })
+        console.log('🔍 [DEBUG] isUserInitialized: 用户配置缓存未命中，查询 user_profiles 表', { userId, cacheKey: profileCacheKey })
         console.log('🚨 [NETWORK] 即将发起 user_profiles 数据库查询请求', { userId, timestamp: new Date().toISOString() })
         const { data: profile, error: profileError } = await supabase
           .from('user_profiles')
@@ -114,22 +120,11 @@ export class UserInitializationService {
         
         // 将结果缓存起来
         if (profile) {
-          store.setGlobalCache(cacheKey, profile)
+          store.setGlobalCache(profileCacheKey, profile)
         }
       }
 
-      // 检查用户订阅是否存在
-      const { data: subscription, error: subscriptionError } = await supabase
-        .from('user_subscriptions')
-        .select('id')
-        .eq('user_id', userId)
-        .single()
-
-      if (subscriptionError && subscriptionError.code !== 'PGRST116') {
-        throw subscriptionError
-      }
-
-      return !!(hasProfile && subscription)
+      return !!hasProfile
     } catch (error) {
       console.error('检查用户初始化状态失败:', error)
       return false
@@ -166,196 +161,6 @@ export class UserInitializationService {
         message: '重新初始化失败',
         error: error instanceof Error ? error.message : '未知错误'
       }
-    }
-  }
-
-  /**
-   * 清理用户数据（谨慎使用）
-   */
-  static async cleanupUserData(userId: string): Promise<void> {
-    try {
-      console.log('清理用户数据:', userId)
-
-      // 删除用户设置
-      await supabase
-        .from('user_settings')
-        .delete()
-        .eq('user_id', userId)
-
-      // 删除用户订阅关系
-      await supabase
-        .from('user_subscriptions')
-        .delete()
-        .eq('user_id', userId)
-
-      // 删除用户配置（最后删除，因为其他表可能有外键依赖）
-      await supabase
-        .from('user_profiles')
-        .delete()
-        .eq('id', userId)
-
-      console.log('用户数据清理完成')
-    } catch (error) {
-      console.error('清理用户数据失败:', error)
-      throw error
-    }
-  }
-
-  /**
-   * 获取用户初始化状态详情
-   */
-  static async getUserInitializationStatus(userId: string): Promise<{
-    initialized: boolean
-    hasProfile: boolean
-    hasSubscription: boolean
-    hasSettings: boolean
-    details: any
-  }> {
-    try {
-      // 首先尝试从 settingsStore 的全局缓存中获取用户配置
-      const { useSettingsStore } = await import('@/store/settingsStore')
-      const store = useSettingsStore.getState()
-      const cacheKey = store.generateCacheKey('user_profile', userId)
-      const cachedResult = store.getFromGlobalCache<any>(cacheKey)
-      
-      let hasProfile = false
-      let profile = null
-      
-      if (cachedResult.data) {
-        // 使用缓存中的数据
-        hasProfile = true
-        profile = cachedResult.data
-        console.log('使用缓存获取用户配置详情')
-      } else {
-        // 缓存不存在，直接查询数据库
-        console.log('🔍 [DEBUG] getUserInitializationStatus: 缓存未命中，查询 user_profiles 表', { userId, cacheKey })
-        console.log('🚨 [NETWORK] 即将发起 user_profiles 数据库查询请求 (getUserInitializationStatus)', { userId, timestamp: new Date().toISOString() })
-        const { data: profileData, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('id', userId)
-          .single()
-        
-        console.log('🚨 [NETWORK] user_profiles 数据库查询完成 (getUserInitializationStatus)', { userId, hasData: !!profileData, error: profileError?.message })
-        
-        if (profileError && profileError.code !== 'PGRST116') {
-          throw profileError
-        }
-        
-        hasProfile = !!profileData
-        profile = profileData
-        
-        // 将结果缓存起来
-        if (profileData) {
-          store.setGlobalCache(cacheKey, profileData)
-        }
-      }
-
-      // 检查用户订阅
-      const { data: subscription, error: subscriptionError } = await supabase
-        .from('user_subscriptions')
-        .select('*')
-        .eq('user_id', userId)
-        .single()
-
-      const hasSubscription = !subscriptionError && !!subscription
-
-      // 检查用户设置
-      const { data: settings, error: settingsError } = await supabase
-        .from('user_settings')
-        .select('*')
-        .eq('user_id', userId)
-
-      const hasSettings = !settingsError && settings && settings.length > 0
-
-      return {
-        initialized: hasProfile && hasSubscription,
-        hasProfile,
-        hasSubscription,
-        hasSettings,
-        details: {
-          profile: hasProfile ? profile : null,
-          subscription: hasSubscription ? subscription : null,
-          settings: hasSettings ? settings : [],
-          errors: {
-            profile: null, // 使用 UserProfileService，错误已在服务内部处理
-            subscription: subscriptionError?.message,
-            settings: settingsError?.message
-          }
-        }
-      }
-    } catch (error) {
-      console.error('获取用户初始化状态失败:', error)
-      return {
-        initialized: false,
-        hasProfile: false,
-        hasSubscription: false,
-        hasSettings: false,
-        details: {
-          error: error instanceof Error ? error.message : '未知错误'
-        }
-      }
-    }
-  }
-
-  /**
-   * 批量初始化用户（管理员功能）
-   */
-  static async batchInitializeUsers(userIds: string[]): Promise<{
-    success: number
-    failed: number
-    results: Array<{
-      userId: string
-      success: boolean
-      message: string
-      error?: string
-    }>
-  }> {
-    const results = []
-    let success = 0
-    let failed = 0
-
-    for (const userId of userIds) {
-      try {
-        const { data: { user }, error: userError } = await supabase.auth.admin.getUserById(userId)
-        
-        if (userError || !user) {
-          results.push({
-            userId,
-            success: false,
-            message: '用户不存在',
-            error: userError?.message || '用户不存在'
-          })
-          failed++
-          continue
-        }
-
-        const result = await this.initializeNewUser(user)
-        results.push({
-          userId,
-          ...result
-        })
-
-        if (result.success) {
-          success++
-        } else {
-          failed++
-        }
-      } catch (error) {
-        results.push({
-          userId,
-          success: false,
-          message: '初始化失败',
-          error: error instanceof Error ? error.message : '未知错误'
-        })
-        failed++
-      }
-    }
-
-    return {
-      success,
-      failed,
-      results
     }
   }
 }

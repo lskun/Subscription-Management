@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { Subscription, BillingCycle, SubscriptionStatus, RenewalType } from '@/store/subscriptionStore'
-
+import { useSettingsStore } from '@/store/settingsStore'
 // Supabase数据库字段类型（snake_case）
 interface SupabaseSubscription {
   id: string
@@ -90,10 +90,10 @@ export class SupabaseSubscriptionService {
    */
   private transformFromSupabase(data: SupabaseSubscription): FrontendSubscription {
     // 如果没有 lastBillingDate，根据 nextBillingDate 和 billingCycle 计算
-    let lastBillingDate = data.last_billing_date
-    if (!lastBillingDate && data.next_billing_date) {
-      lastBillingDate = this.calculateLastBillingDate(data.next_billing_date, data.billing_cycle)
-    }
+    //  let lastBillingDate = data.last_billing_date
+    //  if (!lastBillingDate && data.next_billing_date) {
+    //    lastBillingDate = this.calculateLastBillingDate(data.next_billing_date, data.billing_cycle)
+    //  }
 
     return {
       id: data.id,
@@ -101,7 +101,7 @@ export class SupabaseSubscriptionService {
       plan: data.plan,
       billingCycle: data.billing_cycle,
       nextBillingDate: data.next_billing_date || '',
-      lastBillingDate: lastBillingDate,
+      lastBillingDate: data.last_billing_date || '',
       amount: data.amount,
       currency: data.currency,
       convertedAmount: data.converted_amount,
@@ -222,7 +222,6 @@ export class SupabaseSubscriptionService {
    */
   async createSubscription(subscriptionData: Omit<FrontendSubscription, 'id' | 'lastBillingDate'>): Promise<FrontendSubscription> {
     // 获取当前用户ID
-    const { useSettingsStore } = await import('@/store/settingsStore');
     const user = await useSettingsStore.getState().getCurrentUser()
     if (!user) {
       throw new Error('用户未登录')
@@ -231,6 +230,7 @@ export class SupabaseSubscriptionService {
     // 转换数据格式
     const supabaseData = this.transformToSupabase(subscriptionData)
     
+    console.debug('转换后的订阅数据:', supabaseData)
     // 对于新订阅，last_billing_date 应该为 null，因为还没有发生过计费
     const insertData: CreateSubscriptionInput = {
       ...supabaseData as CreateSubscriptionInput,
@@ -258,7 +258,7 @@ export class SupabaseSubscriptionService {
 
     if (error) {
       console.error('Error creating subscription:', error)
-      throw new Error(`创建订阅失败: ${error.message}`)
+      throw new Error(`Failed to create subscription: ${error.message}`)
     }
 
     return this.transformFromSupabase(data)
@@ -590,6 +590,30 @@ export class SupabaseSubscriptionService {
       : 0
 
     return stats
+  }
+
+  /**
+   * 手动续费订阅
+   * 调用数据库函数 process_subscription_renewal 来处理续费逻辑
+   */
+  async manualRenewSubscription(id: string): Promise<{ error: string | null; renewalData: { newLastBilling: string; newNextBilling: string; } | null; }> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return { error: 'User not authenticated', renewalData: null };
+    }
+
+    const { data, error } = await supabase
+      .rpc('process_subscription_renewal', {
+        p_subscription_id: id,
+        p_user_id: user.id
+      });
+
+    if (error) {
+      console.error('Error renewing subscription via RPC:', error);
+      return { error: error.message, renewalData: null };
+    }
+    
+    return { error: null, renewalData: data };
   }
 
   /**

@@ -374,6 +374,7 @@ export class DataImportService {
             nextBillingDate: sub.nextBillingDate || new Date().toISOString().split('T')[0],
             amount: Number(sub.amount) || 0,
             currency: sub.currency || 'USD',
+            convertedAmount: Number(sub.convertedAmount) || 0,
             paymentMethodId: sub.paymentMethodId || '1',
             startDate: sub.startDate || new Date().toISOString().split('T')[0],
             status: sub.status || 'active',

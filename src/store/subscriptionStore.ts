@@ -4,7 +4,8 @@ import { convertCurrency } from '@/utils/currency'
 import { useSettingsStore } from './settingsStore'
 import { isSubscriptionDue, processSubscriptionRenewal } from '@/lib/subscription-utils'
 import { supabaseSubscriptionService } from '@/services/supabaseSubscriptionService'
-
+import { supabaseCategoriesService } from '@/services/supabaseCategoriesService'
+import { supabasePaymentMethodsService } from '@/services/supabasePaymentMethodsService'
 // Helper to calculate the last billing date from the next one
 const calculateLastBillingDate = (nextBillingDate: string, billingCycle: BillingCycle): string => {
   const nextDate = new Date(nextBillingDate)
@@ -82,13 +83,9 @@ interface SubscriptionState {
   // Request deduplication
   _fetchPromises: {
     subscriptions?: Promise<void>
-    categories?: Promise<void>
-    paymentMethods?: Promise<void>
   }
   _lastFetch: {
     subscriptions?: number
-    categories?: number
-    paymentMethods?: number
   }
 
   // CRUD operations
@@ -213,83 +210,32 @@ const subscriptionStore = create<SubscriptionState>()(
       },
 
       // Fetch categories from Supabase with deduplication
+      /**
+       * 获取分类数据
+       * 依赖Service层的缓存机制，简化Store层逻辑
+       */
       fetchCategories: async () => {
-        const state = get()
-        const now = Date.now()
-        const CACHE_DURATION = 5 * 60 * 1000 // 5 minute cache for categories
-
-        // Check if we have a recent fetch or ongoing request
-        if (state._lastFetch.categories && (now - state._lastFetch.categories) < CACHE_DURATION) {
-          return // Skip if recently fetched
+        try {
+          const categories = await supabaseCategoriesService.getAllCategories()
+          set({ categories })
+        } catch (error) {
+          console.error('Error fetching categories:', error)
+          set({ categories: [] }) // 确保不为null
         }
-
-        if (state._fetchPromises.categories) {
-          return state._fetchPromises.categories // Return existing promise
-        }
-
-        const fetchPromise = (async () => {
-          try {
-            const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
-            const categories = await supabaseCategoriesService.getAllCategories()
-            set({
-              categories,
-              _lastFetch: { ...get()._lastFetch, categories: now }
-            })
-          } catch (error) {
-            console.error('Error fetching categories:', error)
-          } finally {
-            // Clear the promise after completion
-            set(state => ({
-              _fetchPromises: { ...state._fetchPromises, categories: undefined }
-            }))
-          }
-        })()
-
-        set(state => ({
-          _fetchPromises: { ...state._fetchPromises, categories: fetchPromise }
-        }))
-
-        return fetchPromise
       },
 
-      // Fetch payment methods from Supabase with deduplication
+      /**
+       * 获取支付方式数据
+       * 依赖Service层的缓存机制，简化Store层逻辑
+       */
       fetchPaymentMethods: async () => {
-        const state = get()
-        const now = Date.now()
-        const CACHE_DURATION = 5 * 60 * 1000 // 5 minute cache for payment methods
-
-        // Check if we have a recent fetch or ongoing request
-        if (state._lastFetch.paymentMethods && (now - state._lastFetch.paymentMethods) < CACHE_DURATION) {
-          return // Skip if recently fetched
+        try {
+          const paymentMethods = await supabasePaymentMethodsService.getAllPaymentMethods()
+          set({ paymentMethods })
+        } catch (error) {
+          console.error('Error fetching payment methods:', error)
+          set({ paymentMethods: [] }) // 确保不为null
         }
-
-        if (state._fetchPromises.paymentMethods) {
-          return state._fetchPromises.paymentMethods // Return existing promise
-        }
-
-        const fetchPromise = (async () => {
-          try {
-            const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
-            const paymentMethods = await supabasePaymentMethodsService.getAllPaymentMethods()
-            set({
-              paymentMethods,
-              _lastFetch: { ...get()._lastFetch, paymentMethods: now }
-            })
-          } catch (error) {
-            console.error('Error fetching payment methods:', error)
-          } finally {
-            // Clear the promise after completion
-            set(state => ({
-              _fetchPromises: { ...state._fetchPromises, paymentMethods: undefined }
-            }))
-          }
-        })()
-
-        set(state => ({
-          _fetchPromises: { ...state._fetchPromises, paymentMethods: fetchPromise }
-        }))
-
-        return fetchPromise
       },
 
       // Add a new subscription
@@ -380,11 +326,7 @@ const subscriptionStore = create<SubscriptionState>()(
         try {
           const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
           await supabaseCategoriesService.createCategory(category)
-          // Force refresh categories from server by clearing cache
-          set(state => ({
-            _lastFetch: { ...state._lastFetch, categories: 0 },
-            _fetchPromises: { ...state._fetchPromises, categories: undefined }
-          }))
+          // Refresh categories from server
           await get().fetchCategories()
         } catch (error) {
           console.error('Error adding category:', error)
@@ -395,7 +337,6 @@ const subscriptionStore = create<SubscriptionState>()(
       // Edit a category option
       editCategory: async (oldValue, newCategory) => {
         try {
-          const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
           
           // 如果newCategory包含ID，直接使用ID进行更新
           if (newCategory.id) {
@@ -415,11 +356,7 @@ const subscriptionStore = create<SubscriptionState>()(
             })
           }
           
-          // Force refresh categories from server by clearing cache
-          set(state => ({
-            _lastFetch: { ...state._lastFetch, categories: 0 },
-            _fetchPromises: { ...state._fetchPromises, categories: undefined }
-          }))
+          // Refresh categories from server
           await get().fetchCategories()
         } catch (error) {
           console.error('Error updating category:', error)
@@ -432,11 +369,7 @@ const subscriptionStore = create<SubscriptionState>()(
         try {
           const { supabaseCategoriesService } = await import('@/services/supabaseCategoriesService')
           await supabaseCategoriesService.deleteCategory(id)
-          // Force refresh categories from server by clearing cache
-          set(state => ({
-            _lastFetch: { ...state._lastFetch, categories: 0 },
-            _fetchPromises: { ...state._fetchPromises, categories: undefined }
-          }))
+          // Refresh categories from server
           await get().fetchCategories()
         } catch (error) {
           console.error('Error deleting category:', error)
@@ -447,14 +380,8 @@ const subscriptionStore = create<SubscriptionState>()(
       // Add a new payment method option
       addPaymentMethod: async (paymentMethod) => {
         try {
-          const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
           await supabasePaymentMethodsService.createPaymentMethod(paymentMethod)
-          // Force refresh payment methods from server by clearing cache
-          set(state => ({
-            _lastFetch: { ...state._lastFetch, paymentMethods: 0 },
-            _fetchPromises: { ...state._fetchPromises, paymentMethods: undefined }
-          }))
-          await get().fetchPaymentMethods()
+          // Refresh payment methods from server
         } catch (error) {
           console.error('Error adding payment method:', error)
           throw error
@@ -464,7 +391,6 @@ const subscriptionStore = create<SubscriptionState>()(
       // Edit a payment method option
       editPaymentMethod: async (oldValue, newPaymentMethod) => {
         try {
-          const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
           
           // 如果newPaymentMethod包含ID，直接使用ID进行更新
           if (newPaymentMethod.id) {
@@ -484,12 +410,6 @@ const subscriptionStore = create<SubscriptionState>()(
             })
           }
           
-          // Force refresh payment methods from server by clearing cache
-          set(state => ({
-            _lastFetch: { ...state._lastFetch, paymentMethods: 0 },
-            _fetchPromises: { ...state._fetchPromises, paymentMethods: undefined }
-          }))
-          await get().fetchPaymentMethods()
         } catch (error) {
           console.error('Error updating payment method:', error)
           throw error
@@ -499,14 +419,8 @@ const subscriptionStore = create<SubscriptionState>()(
       // Delete a payment method option
       deletePaymentMethod: async (id) => {
         try {
-          const { supabasePaymentMethodsService } = await import('@/services/supabasePaymentMethodsService')
           await supabasePaymentMethodsService.deletePaymentMethod(id)
-          // Force refresh payment methods from server by clearing cache
-          set(state => ({
-            _lastFetch: { ...state._lastFetch, paymentMethods: 0 },
-            _fetchPromises: { ...state._fetchPromises, paymentMethods: undefined }
-          }))
-          await get().fetchPaymentMethods()
+          // Refresh payment methods from server
         } catch (error) {
           console.error('Error deleting payment method:', error)
           throw error
@@ -762,14 +676,23 @@ const subscriptionStore = create<SubscriptionState>()(
       },
 
       // Manual renewal for a specific subscription
-      // TODO: 实现基于Supabase的手动续费逻辑
+      // 实现基于Supabase的手动续费逻辑
       manualRenewSubscription: async (id: string) => {
         try {
-          console.warn('Manual renewal not yet implemented for Supabase')
-          return { error: 'Manual renewal not yet implemented', renewalData: null }
-        } catch (error: any) {
-          console.error('Error renewing subscription:', error)
-          return { error: error.message, renewalData: null }
+          // 将调用委托给 SupabaseSubscriptionService
+          const result = await supabaseSubscriptionService.manualRenewSubscription(id);
+          
+          if (result.error) {
+            return { error: result.error, renewalData: null };
+          }
+
+          // 成功后，可以选择性地更新本地状态或触发刷新
+          // get().fetchSubscriptions(); // 例如，重新获取所有订阅
+
+          return { error: null, renewalData: result.renewalData };
+
+        } catch (e: any) {
+          return { error: e.message || 'An unknown error occurred', renewalData: null };
         }
       },
 
@@ -852,7 +775,8 @@ export const useSubscriptionStore = (lazyLoad: boolean = false) => {
   // 如果启用懒加载，检查并加载categories和paymentMethods
   if (lazyLoad) {
     const { categories, paymentMethods, fetchCategories, fetchPaymentMethods } = store
-    
+
+
     // 懒加载categories - 利用现有的缓存机制
     if (categories.length === 0) {
       fetchCategories()

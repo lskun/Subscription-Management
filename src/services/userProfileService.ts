@@ -26,10 +26,10 @@ export class UserProfileService {
       }
 
       // 生成缓存键
-      const cacheKey = useSettingsStore.getState().generateCacheKey('userProfile', targetUserId)
+      const cacheKey = useSettingsStore.getState().generateCacheKey('user_profile', targetUserId)
       
       // 检查缓存
-      const cached = useSettingsStore.getState().getFromGlobalCache<UserProfile>(cacheKey)
+      const cached = useSettingsStore.getState().getFromGlobalCache<any>(cacheKey)
       
       if (cached.data) {
         console.log('🎯 使用缓存的用户配置数据:', targetUserId)
@@ -97,7 +97,8 @@ export class UserProfileService {
         display_name: displayName,
         avatar_url: null,
         timezone: 'Asia/Shanghai',
-        language: 'zh-CN'
+        language: 'zh-CN',
+        email: userEmail,
       }
 
       const { data, error } = await supabase

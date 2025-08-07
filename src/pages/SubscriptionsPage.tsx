@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/tooltip"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useConfirmation } from "@/hooks/use-confirmation"
+import { addMonths, addQuarters, addYears } from "date-fns"
 
 import { 
   useSubscriptionStore, 
@@ -154,6 +155,8 @@ export function SubscriptionsPage() {
       return
     }
     
+    console.debug('添加新订阅:', newSubscription)
+
     // 直接在本地状态中添加新订阅，避免重新获取所有数据
     if (newSubscription) {
       // 将Subscription类型转换为SubscriptionData类型
@@ -165,7 +168,7 @@ export function SubscriptionsPage() {
         currency: newSubscription.currency,
         convertedAmount: newSubscription.convertedAmount || newSubscription.amount,
         billingCycle: newSubscription.billingCycle,
-        nextBillingDate: newSubscription.nextBillingDate || new Date().toISOString(),
+        nextBillingDate: newSubscription.nextBillingDate,
         lastBillingDate: newSubscription.lastBillingDate,
         status: newSubscription.status,
         categoryId: newSubscription.categoryId,
@@ -272,18 +275,35 @@ export function SubscriptionsPage() {
     const subscription = subscriptions.find(sub => sub.id === id)
     if (!subscription) return
 
-    // 设置loading状态
     const action = status === 'active' ? 'reactivate' : 'cancel'
     const message = status === 'active' ? `Reactivating ${subscription.name}...` : `Cancelling ${subscription.name}...`
     setOperationLoading(action, message)
 
     try {
-      // 准备更新数据
       const updateData: Partial<Subscription> = { status }
-      
-      // 如果取消订阅，将nextBillingDate设置为null，避免显示错误日期
+
       if (status === 'cancelled') {
         updateData.nextBillingDate = null
+      } else if (status === 'active') {
+        // This is the reactivation logic
+        const baseDate = subscription.lastBillingDate || subscription.startDate
+        if (baseDate) {
+          let newNextBillingDate: Date;
+          switch (subscription.billingCycle) {
+            case 'monthly':
+              newNextBillingDate = addMonths(new Date(baseDate), 1)
+              break
+            case 'quarterly':
+              newNextBillingDate = addQuarters(new Date(baseDate), 1)
+              break
+            case 'yearly':
+              newNextBillingDate = addYears(new Date(baseDate), 1)
+              break
+            default:
+              newNextBillingDate = new Date() // Fallback, should not happen
+          }
+          updateData.nextBillingDate = newNextBillingDate.toISOString()
+        }
       }
 
       const { error } = await updateSubscription(id, updateData)
@@ -297,11 +317,14 @@ export function SubscriptionsPage() {
         return
       }
 
-      // Update local state instead of refreshing
-       const currentSubscription = subscriptions.find(sub => sub.id === id)
-       if (currentSubscription) {
-         updateLocalSubscription({ ...currentSubscription, ...updateData })
-       }
+      const currentSubscription = subscriptions.find(sub => sub.id === id)
+      if (currentSubscription) {
+        const mergedData = { ...currentSubscription, ...updateData };
+        updateLocalSubscription({
+          ...mergedData,
+          nextBillingDate: mergedData.nextBillingDate || '',
+        });
+      }
 
       toast({
         title: status === "active" ? "Subscription activated" : "Subscription cancelled",

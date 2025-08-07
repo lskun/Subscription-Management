@@ -143,15 +143,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
                   
                   // 延迟更长时间，让页面组件有机会建立缓存
                   await new Promise(resolve => setTimeout(resolve, 1000))
-                  
-                  console.log('🔍 [DEBUG] AuthContext: 检查用户初始化状态前', { userId: session.user.id })
-                  
-                  // 检查缓存是否已设置
-                  const cacheResult = store.getFromGlobalCache(userProfileCacheKey)
-                  console.log('🔍 [DEBUG] AuthContext: 缓存检查结果', { cacheKey: userProfileCacheKey, hasCache: !!cacheResult.data })
-                  
+
                   const isInitialized = await UserInitializationService.isUserInitialized(session.user.id)
-                  console.log('🔍 [DEBUG] AuthContext: 检查用户初始化状态后', { userId: session.user.id, isInitialized })
                   if (!isInitialized) {
                     console.log('检测到新用户，开始初始化...')
                     const initResult = await UserInitializationService.initializeNewUser(session.user)
@@ -347,8 +340,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signOut = async () => {
     try {
       setLoading(true)
-      // 清除用户缓存
+      
+      // 清除用户相关的所有缓存
       useSettingsStore.getState().clearUserCache()
+      // 清除订阅数据缓存
+      const { subscriptionsEdgeFunctionService } = await import('@/services/subscriptionsEdgeFunctionService')
+      subscriptionsEdgeFunctionService.clearCache()
+      
+      // 清除仪表板分析缓存
+      const { dashboardAnalyticsService } = await import('@/services/dashboardAnalyticsService')
+      dashboardAnalyticsService.clearCache()
+      
       // 使用SessionService的安全登出
       await SessionService.signOut('user_initiated')
     } catch (error) {

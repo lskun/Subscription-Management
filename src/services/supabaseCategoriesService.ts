@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { useSettingsStore } from '@/store/settingsStore'
 
 export interface CategoryOption {
   id: string
@@ -16,18 +17,41 @@ export class SupabaseCategoriesService {
    * 获取所有可用分类（系统默认 + 用户自定义）
    */
   async getAllCategories(): Promise<CategoryOption[]> {
+
+    // 获取当前用户ID
+    const user = await useSettingsStore.getState().getCurrentUser();
+    if (!user) {
+      throw new Error('用户未登录')
+    }
+    // 从缓存中获取
+    const cacheKey = useSettingsStore.getState().generateCacheKey('categories', user.id)
+    const cached = useSettingsStore.getState().getFromGlobalCache<CategoryOption[]>(cacheKey)
+    
+    if (cached.data) {
+      console.log('🎯 使用缓存的分类数据: ' + cacheKey)
+      return cached.data
+    }
+    
+    if (cached.promise) {
+      console.log('⏳ 等待现有的分类获取请求')
+      return cached.promise
+    }
+    
+
     const { data, error } = await supabase
       .from('categories')
       .select('id, value, label, is_default')
+      .or(`is_default.eq.true,user_id.eq.${user.id}`)
       .order('is_default', { ascending: false }) // 默认分类在前
       .order('label', { ascending: true })
-
+   
     if (error) {
       console.error('Error fetching categories:', error)
       throw new Error(`获取分类列表失败: ${error.message}`)
     }
-
-    return data || []
+    // 缓存结果
+    useSettingsStore.getState().setGlobalCache(cacheKey, data)
+    return data
   }
 
   /**
@@ -116,6 +140,9 @@ export class SupabaseCategoriesService {
       throw new Error(`创建分类失败: ${error.message}`)
     }
 
+    // 清除缓存
+    useSettingsStore.getState().clearGlobalCache(useSettingsStore.getState().generateCacheKey('categories', user.id))
+
     return data
   }
 
@@ -125,7 +152,6 @@ export class SupabaseCategoriesService {
    */
   async updateCategory(id: string, updateData: { value?: string; label?: string }): Promise<CategoryOption> {
     // 获取当前用户ID
-    const { useSettingsStore } = await import('@/store/settingsStore');
     const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')
@@ -208,6 +234,9 @@ export class SupabaseCategoriesService {
       throw new Error(`更新分类失败: ${error.message}`)
     }
 
+    // 清除缓存
+    useSettingsStore.getState().clearGlobalCache(useSettingsStore.getState().generateCacheKey('categories', user.id))
+
     return data
   }
 
@@ -215,6 +244,11 @@ export class SupabaseCategoriesService {
    * 删除用户自定义分类
    */
   async deleteCategory(id: string): Promise<void> {
+    const user = await useSettingsStore.getState().getCurrentUser();
+    if (!user) {
+      throw new Error('用户未登录')
+    }
+
     console.log('开始删除分类，ID:', id)
     
     // 检查是否有订阅使用此分类
@@ -256,6 +290,8 @@ export class SupabaseCategoriesService {
     }
 
     console.log('分类删除成功:', data)
+    // 清除缓存
+    useSettingsStore.getState().clearGlobalCache(useSettingsStore.getState().generateCacheKey('categories', user.id))
   }
 
   /**
@@ -263,7 +299,6 @@ export class SupabaseCategoriesService {
    */
   async getCategoryByValue(value: string): Promise<CategoryOption | null> {
     // 获取当前用户ID
-    const { useSettingsStore } = await import('@/store/settingsStore');
     const user = await useSettingsStore.getState().getCurrentUser();
     if (!user) {
       throw new Error('用户未登录')

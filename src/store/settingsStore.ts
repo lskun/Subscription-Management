@@ -911,7 +911,8 @@ export const useSettingsStore = create<SettingsState>()(
         userSettingsCache: state.userSettingsCache,
         userSettingsCacheTimestamp: state.userSettingsCacheTimestamp,
         exchangeRates: state.exchangeRates,
-        lastExchangeRateUpdate: state.lastExchangeRateUpdate
+        lastExchangeRateUpdate: state.lastExchangeRateUpdate,
+        globalCache: state.globalCache // 添加全局缓存到持久化状态
       })
     }
   )
