@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:auto-renew": "vitest run src/lib/__tests__/auto-renewal.test.ts",
     "test:ui": "vitest --ui",
     "test:e2e": "npx playwright test",
     "test:e2e:ui": "npx playwright test --ui",
@@ -20,7 +21,8 @@
     "test:e2e:integration": "npx playwright test tests/e2e/integration.spec.ts",
     "check-supabase": "node scripts/check-supabase-config.js",
     "validate-sql": "node scripts/validate-sql.js",
-    "test-edge-function": "node scripts/test-edge-function.js"
+    "test-edge-function": "node scripts/test-edge-function.js",
+    "verify:auto-renew-batch": "tsx scripts/verify-auto-renew-batch.ts"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.8",

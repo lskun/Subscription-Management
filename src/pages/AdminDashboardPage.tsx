@@ -75,6 +75,7 @@ export function AdminDashboardPage() {
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [currentView, setCurrentView] = useState<'dashboard' | 'users' | 'monitoring' | 'settings' | 'logs'>('dashboard');
   const [contentLoading, setContentLoading] = useState(false);
+  const [isTriggeringRenewal, setIsTriggeringRenewal] = useState(false);
   
   // 系统设置状态
   const [settings, setSettings] = useState<SystemSettings>({
@@ -162,31 +163,14 @@ export function AdminDashboardPage() {
   // 加载系统统计数据
   const loadSystemStats = async () => {
     try {
-      // 优化1: 使用count查询获取用户总数，避免获取所有记录
-      const { count: totalUsers } = await supabase
-        .from('user_profiles')
-        .select('*', { count: 'exact', head: true });
-      
-      // 优化1: 使用count查询获取活跃订阅总数
-      const { count: totalSubscriptions } = await supabase
-        .from('subscriptions')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'active');
-      
-      // 优化2: 获取真实的活跃用户数（最近30天有活动的用户）
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      
-      const { count: activeUsers } = await supabase
-        .from('user_profiles')
-        .select('*', { count: 'exact', head: true })
-        .gte('updated_at', thirtyDaysAgo.toISOString());
-      
+      // 改为调用带权限校验（super_admin）的 RPC，绕过 RLS 统计真实数据
+      const { data, error } = await supabase.rpc('get_system_stats');
+      if (error) throw error;
       setStats({
-        totalUsers: totalUsers || 0,
-        activeUsers: activeUsers || 0,
-        totalSubscriptions: totalSubscriptions || 0,
-        systemHealth: (totalUsers || 0) > 1000 ? 'warning' : 'healthy'
+        totalUsers: data?.totalUsers ?? 0,
+        activeUsers: data?.activeUsers ?? 0,
+        totalSubscriptions: data?.totalSubscriptions ?? 0,
+        systemHealth: (data?.totalUsers ?? 0) > 1000 ? 'warning' : 'healthy'
       });
     } catch (error) {
       console.error('Failed to load system stats:', error);
@@ -262,6 +246,59 @@ export function AdminDashboardPage() {
         description: "系统设置保存失败，请重试",
         variant: "destructive"
       });
+    }
+  };
+
+  // 手动触发自动续费（优先 DB 内部批处理，失败回退 Edge Function）
+  const triggerAutoRenewal = async () => {
+    if (isTriggeringRenewal) return;
+    setIsTriggeringRenewal(true);
+    try {
+      // 优先尝试调用数据库函数（生产方案）
+      const { data: rpcData, error: rpcError } = await supabase.rpc('process_due_auto_renewals', { p_limit: 200 });
+      if (!rpcError) {
+        toast({
+          title: '自动续费任务已触发（DB）',
+          description: `处理成功: ${rpcData?.processed_count ?? 0}，错误: ${rpcData?.error_count ?? 0}`
+        });
+        await logOperation(
+          ADMIN_OPERATION_TYPES.SYSTEM_CONFIG_CHANGE,
+          ADMIN_TARGET_TYPES.SYSTEM,
+          'auto_renewal_manual_trigger',
+          { method: 'db_function', result: rpcData }
+        );
+        return;
+      }
+
+      // 回退：调用 Edge Function
+      const { data: fnData, error: fnError } = await supabase.functions.invoke('auto-renew-subscriptions');
+      if (fnError) throw fnError;
+
+      toast({
+        title: '自动续费任务已触发（Edge Function）',
+        description: `processed: ${fnData?.processed ?? 0}, errors: ${fnData?.errors ?? 0}`
+      });
+      await logOperation(
+        ADMIN_OPERATION_TYPES.SYSTEM_CONFIG_CHANGE,
+        ADMIN_TARGET_TYPES.SYSTEM,
+        'auto_renewal_manual_trigger',
+        { method: 'edge_function', result: fnData }
+      );
+    } catch (error: any) {
+      console.error('手动触发自动续费失败:', error);
+      toast({
+        title: '触发失败',
+        description: error?.message || '请稍后重试',
+        variant: 'destructive'
+      });
+      await logOperation(
+        ADMIN_OPERATION_TYPES.SYSTEM_CONFIG_CHANGE,
+        ADMIN_TARGET_TYPES.SYSTEM,
+        'auto_renewal_manual_trigger_error',
+        { error: String(error?.message || error) }
+      );
+    } finally {
+      setIsTriggeringRenewal(false);
     }
   };
 
@@ -845,6 +882,22 @@ export function AdminDashboardPage() {
                 onCheckedChange={(checked) => setSettings({...settings, debugMode: checked})}
                 className="data-[state=checked]:bg-blue-600 data-[state=unchecked]:bg-slate-200 dark:data-[state=unchecked]:bg-slate-700"
               />
+            </div>
+
+            {/* 手动触发自动续费 */}
+            <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+              <div className="space-y-1">
+                <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">手动触发自动续费</Label>
+                <p className="text-xs text-slate-600 dark:text-slate-400">立即执行到期订阅的批量续费任务（仅管理员）</p>
+              </div>
+              <Button
+                onClick={triggerAutoRenewal}
+                disabled={!hasPermission('manage_system') || isTriggeringRenewal}
+                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+              >
+                {isTriggeringRenewal ? <Activity className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                {isTriggeringRenewal ? '执行中...' : '手动触发'}
+              </Button>
             </div>
           </CardContent>
         </Card>

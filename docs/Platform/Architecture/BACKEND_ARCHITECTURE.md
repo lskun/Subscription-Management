@@ -1,159 +1,66 @@
-# 订阅管理系统后端服务架构文档
+# 后端架构（Supabase 版）
 
-## 概述
+本系统采用「无服务/托管后端」模式：以 Supabase 为核心的 Auth、Postgres（RLS）、PostgREST、Edge Functions 及存储/监控能力，前端通过 REST/RPC/Edge Functions 访问数据与计算，不再使用本地 Express/SQLite。
 
-本文档详细描述了订阅管理系统后端服务的架构设计、实现逻辑和技术细节。后端采用Node.js + Express + SQLite的技术栈，遵循分层架构模式，提供RESTful API服务。
+## 架构总览
 
-## 🏗 整体架构
-
-### 架构模式
-采用经典的三层架构模式：
-```
-Controller Layer (控制器层)
-    ↓
-Service Layer (业务逻辑层)
-    ↓
-Repository Layer (数据访问层)
-    ↓
-Database Layer (数据库层)
+```mermaid
+graph LR
+  FE[Frontend (React/Vite/TS)] -->|Auth| AUTH[Supabase Auth]
+  FE -->|REST/RPC| DB[(Postgres + RLS)]
+  FE -->|HTTP| EDGE[Edge Functions]
+  EDGE --> DB
+  EDGE --> EXT[外部服务(邮件/汇率/监控)]
 ```
 
-### 技术栈
-- **运行时**: Node.js 20+
-- **Web框架**: Express 5
-- **数据库**: SQLite + better-sqlite3
-- **定时任务**: node-cron
-- **HTTP客户端**: axios
-- **环境配置**: dotenv
+- Auth: OAuth 会话、Token、行级安全（RLS）上下文
+- PostgREST: 自动生成的 REST/RPC 接口（受 RLS 保护）
+- Edge Functions: 复杂聚合/批处理/对外部服务调用
+- 外部服务: TianAPI（汇率）、Resend（邮件，可选）、Supabase Metrics
 
-## 📁 目录结构
+## 主要后端组件
+- 身份与权限
+  - Supabase Auth（OAuth/Sessions）
+  - RLS 策略按 `user_id` 约束行级访问；管理员能力经 `admin_*` 表和函数控制
+- 数据接口
+  - REST: `/rest/v1/<table>`，受 RLS 控制
+  - RPC: `/rest/v1/rpc/<function>`，用于过程化操作（如续费）
+  - Edge Functions: `/functions/v1/<name>`，用于复杂聚合或跨服务调用
+- 计算与任务
+  - Edge: `dashboard-analytics`, `expense-reports`, `subscriptions-management`, `update-exchange-rates`, `send-welcome-email`, `send-notification-email`, `database-metrics`, `handle-new-user`
 
-```
-server/
-├── server.js              # 应用入口和路由配置
-├── config/                 # 配置管理
-│   ├── index.js           # 配置入口
-│   ├── database.js        # 数据库配置
-│   └── currencies.js      # 货币配置
-├── db/                     # 数据库相关
-│   ├── schema.sql         # 数据库结构定义
-│   ├── init.js            # 数据库初始化
-│   ├── migrate.js         # 迁移执行器
-│   └── migrations.js      # 迁移定义
-├── controllers/            # 控制器层
-├── services/              # 业务逻辑层
-├── routes/                # 路由定义
-├── middleware/            # 中间件
-├── utils/                 # 工具类
-└── scripts/               # 脚本文件
-```
+## 数据库域模型（按功能域）
+- Subscriptions 域
+  - `subscriptions`, `categories`, `payment_methods`, `payment_history`
+- Rates 域
+  - `exchange_rates`, `exchange_rate_history`, `exchange_rate_update_logs`
+- 用户/设置/偏好
+  - `user_profiles`, `user_settings`, `user_email_preferences`, `user_notification_preferences`
+- 平台订阅计划
+  - `subscription_plans`, `user_subscriptions`
+- 通知/邮件
+  - `notification_templates`, `user_notifications`, `email_templates`, `email_logs`, `email_queue`
+- 管理员/系统
+  - `admin_roles`, `admin_users`, `admin_sessions`, `admin_operation_logs`
+  - `system_settings`, `system_health`, `system_stats`, `system_logs`
 
-## 🗄 数据库设计
+> 以上表名已与当前 Supabase 数据库一致（基于最新 Schema 枚举）。
 
-### 数据库架构
-使用SQLite作为数据库，采用关系型设计，确保数据完整性和一致性。
-
-### 核心数据表
-
-#### 1. settings (系统设置表)
-```sql
-CREATE TABLE settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    currency TEXT NOT NULL DEFAULT 'CNY',
-    theme TEXT NOT NULL DEFAULT 'system',
-    show_original_currency BOOLEAN NOT NULL DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-#### 2. categories (分类表)
-```sql
-CREATE TABLE categories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    value TEXT NOT NULL UNIQUE,
-    label TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-#### 3. payment_methods (支付方式表)
-```sql
-CREATE TABLE payment_methods (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    value TEXT NOT NULL UNIQUE,
-    label TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-#### 4. subscriptions (订阅主表)
-```sql
-CREATE TABLE subscriptions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    plan TEXT NOT NULL,
-    billing_cycle TEXT NOT NULL CHECK (billing_cycle IN ('monthly', 'yearly', 'quarterly')),
-    next_billing_date DATE,
-    last_billing_date DATE,
-    amount DECIMAL(10, 2) NOT NULL,
-    currency TEXT NOT NULL DEFAULT 'CNY',
-    payment_method_id INTEGER NOT NULL,
-    start_date DATE,
-    status TEXT NOT NULL DEFAULT 'active',
-    category_id INTEGER NOT NULL,
-    renewal_type TEXT NOT NULL DEFAULT 'manual',
-    notes TEXT,
-    website TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (payment_method_id) REFERENCES payment_methods (id),
-    FOREIGN KEY (category_id) REFERENCES categories (id)
-);
-```
-
-#### 5. payment_history (支付历史表)
-```sql
-CREATE TABLE payment_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    subscription_id INTEGER NOT NULL,
-    payment_date DATE NOT NULL,
-    amount_paid DECIMAL(10, 2) NOT NULL,
-    currency TEXT NOT NULL,
-    billing_period_start DATE NOT NULL,
-    billing_period_end DATE NOT NULL,
-    status TEXT NOT NULL DEFAULT 'success',
-    notes TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (subscription_id) REFERENCES subscriptions (id) ON DELETE CASCADE
-);
-```
-
-#### 6. monthly_category_summary (月度分类汇总表)
-```sql
-CREATE TABLE monthly_category_summary (
-    year INTEGER NOT NULL,
-    month INTEGER NOT NULL,
-    category_id INTEGER NOT NULL,
-    total_amount_in_base_currency DECIMAL(12, 2) NOT NULL DEFAULT 0.00,
-    base_currency TEXT NOT NULL DEFAULT 'CNY',
-    transactions_count INTEGER NOT NULL DEFAULT 0,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (year, month, category_id),
-    FOREIGN KEY (category_id) REFERENCES categories (id) ON DELETE CASCADE
-);
-```
-
-#### 7. exchange_rates (汇率表)
-```sql
-CREATE TABLE exchange_rates (
-    from_currency TEXT NOT NULL,
-    to_currency TEXT NOT NULL,
-    rate DECIMAL(10, 6) NOT NULL,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (from_currency, to_currency)
-);
-```
+## 关键流程
+- 用户初始化
+  - 触发: 新用户注册 → `handle-new-user`
+  - 写入: `user_profiles`, `user_settings`（默认设置）
+- 仪表盘/报表
+  - `dashboard-analytics`/`expense-reports` 聚合查询 → 读取订阅/支付/汇率并整合
+- 订阅管理与续费
+  - `subscriptions-management` 汇总/筛选列表（内部 RPC `get_managed_subscriptions`）
+  - RPC `process_subscription_renewal(subscription_id, user_id)` 执行续费、写 `payment_history`
+- 汇率更新
+  - `update-exchange-rates` 拉取 TianAPI，写 `exchange_rates`，记录 `exchange_rate_update_logs`，归档到 `exchange_rate_history`
+- 通知与邮件
+  - `send-welcome-email`/`send-notification-email`，并记录 `email_logs`/`email_queue`，站内 `user_notifications`
+- 系统监控
+  - `database-metrics` 解析 Supabase Metrics，写入 `system_*` 表（如有）
 
 ### 数据库特性
 
@@ -182,37 +89,13 @@ CREATE INDEX idx_payment_history_subscription ON payment_history(subscription_id
 CREATE INDEX idx_payment_history_date ON payment_history(payment_date);
 ```
 
-## 🔧 配置管理
-
-### 配置系统
-集中式配置管理，支持环境变量和默认值。
-
-#### config/index.js
-```javascript
-const path = require('path');
-const fs = require('fs');
-
-// 基础配置
-const BASE_CURRENCY = process.env.BASE_CURRENCY || 'CNY';
-const PORT = process.env.PORT || 3001;
-const NODE_ENV = process.env.NODE_ENV || 'development';
-
-// 数据库配置
-const getDatabasePath = () => {
-    if (process.env.DATABASE_PATH) {
-        return process.env.DATABASE_PATH;
-    }
-    
-    const dbDir = path.join(__dirname, '..', 'db');
-    return path.join(dbDir, 'database.sqlite');
-};
-
-// API密钥配置
-const getApiKey = () => process.env.API_KEY;
-
-// 天行数据API密钥
-const getTianApiKey = () => process.env.TIANAPI_KEY;
-```
+## 安全与访问控制
+- 核心依赖 Postgres RLS：
+  - 普通用户仅可读写自身 `user_id` 相关行
+  - `categories`/`payment_methods` 默认项具备匿名只读（必要时）
+  - `exchange_rates` 仅服务角色可写；普通用户可读
+  - 管理员表与操作经 `admin_users`/`admin_roles` 及相关函数校验
+- 边界：涉及外部 API 的写入操作仅在 Edge 或服务角色下执行
 
 ### 环境变量
 ```bash
@@ -227,29 +110,15 @@ DATABASE_PATH=/app/data/database.sqlite
 TIANAPI_KEY=your_tianapi_key_here
 ```
 
-## 🛡 中间件系统
+## 迁移与版本
+- 迁移示例（节选）：
+  - `006_enhance_rls_policies_*`, `007_fix_rls_anonymous_access_*`
+  - `enhance_exchange_rates` 及后续若干汇率相关迁移
+  - `email_notification_system_fixed`, `user_notifications_system`
+  - `admin_system`, `create_system_settings_table`, `create_system_monitoring_tables`
+  - 支付状态与索引：`step1_remove_payment_status_constraint` → `add_payment_validation_constraints`
 
-### 认证中间件 (middleware/auth.js)
-```javascript
-const apiKeyAuth = (req, res, next) => {
-    const apiKey = req.headers['x-api-key'];
-    const expectedApiKey = process.env.API_KEY;
-    
-    if (!expectedApiKey) {
-        return res.status(500).json({ 
-            error: 'API key not configured on server' 
-        });
-    }
-    
-    if (!apiKey || apiKey !== expectedApiKey) {
-        return res.status(401).json({ 
-            error: 'Invalid or missing API key' 
-        });
-    }
-    
-    next();
-};
-```
+迁移通过 Supabase CLI/Studio 执行与追踪，详细请参考 `docs/Platform/Database/*` 与 `docs/Platform/Migration/*`。
 
 ### 错误处理中间件 (middleware/errorHandler.js)
 ```javascript
@@ -283,93 +152,14 @@ const notFoundHandler = (req, res) => {
 };
 ```
 
-## 🔄 数据访问层
-
-### BaseRepository (utils/BaseRepository.js)
-通用数据访问基类，提供标准的CRUD操作。
-
-```javascript
-class BaseRepository {
-    constructor(db, tableName) {
-        this.db = db;
-        this.tableName = tableName;
-    }
-    
-    // 查询所有记录
-    findAll(options = {}) {
-        let query = `SELECT * FROM ${this.tableName}`;
-        const params = [];
-        
-        // WHERE条件
-        if (options.where) {
-            const conditions = Object.keys(options.where);
-            const whereClause = conditions.map(key => `${key} = ?`).join(' AND ');
-            query += ` WHERE ${whereClause}`;
-            params.push(...Object.values(options.where));
-        }
-        
-        // 排序
-        if (options.orderBy) {
-            query += ` ORDER BY ${options.orderBy}`;
-        }
-        
-        // 分页
-        if (options.limit) {
-            query += ` LIMIT ?`;
-            params.push(options.limit);
-            
-            if (options.offset) {
-                query += ` OFFSET ?`;
-                params.push(options.offset);
-            }
-        }
-        
-        const stmt = this.db.prepare(query);
-        return stmt.all(...params);
-    }
-    
-    // 根据ID查询
-    findById(id, idField = 'id') {
-        const stmt = this.db.prepare(`SELECT * FROM ${this.tableName} WHERE ${idField} = ?`);
-        return stmt.get(id);
-    }
-    
-    // 创建记录
-    create(data) {
-        const fields = Object.keys(data);
-        const values = Object.values(data);
-        const placeholders = fields.map(() => '?').join(', ');
-        
-        const query = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
-        const stmt = this.db.prepare(query);
-        
-        return stmt.run(...values);
-    }
-    
-    // 更新记录
-    update(id, data, idField = 'id') {
-        const fields = Object.keys(data);
-        const values = Object.values(data);
-        const setClause = fields.map(field => `${field} = ?`).join(', ');
-        
-        const query = `UPDATE ${this.tableName} SET ${setClause} WHERE ${idField} = ?`;
-        const stmt = this.db.prepare(query);
-        
-        return stmt.run(...values, id);
-    }
-    
-    // 删除记录
-    delete(id, idField = 'id') {
-        const stmt = this.db.prepare(`DELETE FROM ${this.tableName} WHERE ${idField} = ?`);
-        return stmt.run(id);
-    }
-    
-    // 事务支持
-    transaction(fn) {
-        return this.db.transaction(fn);
-    }
-}
-```
+## 接口速览（示例）
+- REST
+  - `GET /rest/v1/subscriptions?select=*&order=updated_at.desc`
+- RPC
+  - `POST /rest/v1/rpc/process_subscription_renewal`（JSON: `{ subscription_id, user_id }`）
+- Edge Functions
+  - `POST /functions/v1/expense-reports`、`POST /functions/v1/subscriptions-management`
+  - `POST /functions/v1/update-exchange-rates`、`GET /functions/v1/database-metrics`
 
 ### 特性
 - **通用CRUD操作**: 标准化的数据库操作
@@ -378,33 +168,9 @@ class BaseRepository {
 - **参数化查询**: 防止SQL注入
 - **错误处理**: 统一的错误处理机制
 
-## 🎯 控制器层
-
-控制器层负责处理HTTP请求，调用业务逻辑，返回响应。
-
-### 控制器基本结构
-```javascript
-class SubscriptionController {
-    constructor(db) {
-        this.subscriptionService = new SubscriptionService(db);
-    }
-    
-    // 获取所有订阅
-    getAllSubscriptions = asyncHandler(async (req, res) => {
-        const subscriptions = await this.subscriptionService.getAllSubscriptions();
-        res.json(subscriptions);
-    });
-    
-    // 创建订阅
-    createSubscription = asyncHandler(async (req, res) => {
-        const subscription = await this.subscriptionService.createSubscription(req.body);
-        res.status(201).json({ 
-            id: subscription.id,
-            message: '订阅创建成功' 
-        });
-    });
-}
-```
+## 与旧文档差异说明
+- 本文档取代旧的「Node.js + Express + SQLite」说明，现网实现基于 Supabase（Auth/RLS/PostgREST/Edge）。
+- 如需历史参考，请查看 `docs/Project/STRUCTURE.md` 与本文件的 Git 历史。
 
 ### 响应处理工具 (utils/responseHelper.js)
 ```javascript

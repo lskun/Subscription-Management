@@ -378,12 +378,9 @@ export function UserManagement({ className, onLoadingChange }: UserManagementPro
                         <TableRow key={user.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
                           <TableCell className="py-2">
                             <div className="space-y-1">
-                              <div className="font-medium text-slate-900 dark:text-slate-100">{user.display_name}</div>
-                              {user.user_metadata?.full_name && (
-                                <div className="text-sm text-slate-600 dark:text-slate-400">
-                                  {user.user_metadata.full_name}
-                                </div>
-                              )}
+                              <div className="font-medium text-slate-900 dark:text-slate-100">
+                                {user.user_metadata?.full_name || user.display_name || ''}
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell className="py-2">

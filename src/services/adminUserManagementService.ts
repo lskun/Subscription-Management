@@ -73,58 +73,13 @@ class AdminUserManagementService {
         return { users: [], total: 0, error: permissionCheck.error };
       }
 
-      let query = supabase
-        .from('user_profiles')
-        .select('*', { count: 'exact' });
-
-      // 应用搜索过滤器
-      if (filters?.search) {
-        query = query.or(`email.ilike.%${filters.search}%,display_name.ilike.%${filters.search}%`);
-      }
-
-      // 应用状态过滤器
-      if (filters?.status) {
-        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        
-        switch (filters.status) {
-          case 'active':
-            // 活跃用户：最近30天内有登录记录且未被锁定
-            query = query
-              .gte('last_login_time', thirtyDaysAgo)
-              .eq('is_blocked', false);
-            break;
-          case 'inactive':
-            // 非活跃用户：超过30天未登录或从未登录，且未被锁定
-            query = query
-              .or(`last_login_time.is.null,last_login_time.lt.${thirtyDaysAgo}`)
-              .eq('is_blocked', false);
-            break;
-          case 'suspended':
-            // 暂停用户：is_blocked 为 true
-            query = query.eq('is_blocked', true);
-            break;
-        }
-      }
-
-      // 应用日期范围过滤器
-      if (filters?.dateRange) {
-        query = query
-          .gte('created_at', filters.dateRange.start)
-          .lte('created_at', filters.dateRange.end);
-      }
-
-      // 应用排序
-      const sortBy = filters?.sortBy || 'created_at';
-      const sortOrder = filters?.sortOrder || 'desc';
-      query = query.order(sortBy, { ascending: sortOrder === 'asc' });
-
-      // 应用分页
-      const from = (page - 1) * limit;
-      const to = from + limit - 1;
-      query = query.range(from, to);
-
-      const { data, error, count } = await query;
-
+      // 改为调用 RPC（super_admin 校验、绕过 RLS），服务端完成筛选/搜索/分页排序
+      const { data, error } = await supabase.rpc('list_users', {
+        p_page: page,
+        p_limit: limit,
+        p_search: filters?.search || null,
+        p_status: filters?.status || null
+      });
       if (error) {
         console.error('获取用户列表失败:', error);
         return { users: [], total: 0, error: '获取用户列表失败' };
@@ -139,13 +94,13 @@ class AdminUserManagementService {
           filters,
           page,
           limit,
-          resultCount: data?.length || 0
+          resultCount: (data?.users || []).length || 0
         }
       );
 
       return {
-        users: data || [],
-        total: count || 0
+        users: (data?.users || []) as unknown as UserProfile[],
+        total: (data?.total || 0) as number
       };
     } catch (error) {
       console.error('获取用户列表异常:', error);
@@ -444,57 +399,22 @@ class AdminUserManagementService {
     error?: string;
   }> {
     try {
-      // 验证权限
-      const permissionCheck = await AdminMiddleware.requirePermission(ADMIN_PERMISSIONS.VIEW_ANALYTICS);
-      if (!permissionCheck.success) {
-        return {
-          totalUsers: 0,
-          activeUsers: 0,
-          newUsersThisMonth: 0,
-          suspendedUsers: 0,
-          error: permissionCheck.error
-        };
-      }
-
-      // 使用单个查询获取所有统计信息
-      const { data: users, error } = await supabase
-        .from('user_profiles')
-        .select('created_at, last_login_time, is_blocked');
-
+      // 调用带 super_admin 校验的 RPC，绕过 RLS 获取真实统计
+      const { data, error } = await supabase.rpc('get_user_stats');
       if (error) {
-        console.error('获取用户统计信息失败:', error);
         return {
           totalUsers: 0,
           activeUsers: 0,
           newUsersThisMonth: 0,
           suspendedUsers: 0,
-          error: '获取统计信息失败'
+          error: error.message
         };
       }
-
-      const now = new Date();
-      const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-      // 计算统计信息
-      const totalUsers = users?.length || 0;
-      const newUsersThisMonth = users?.filter(user => 
-        user.created_at && new Date(user.created_at) >= thisMonth
-      ).length || 0;
-      
-      // 活跃用户：最近30天内有登录记录的用户
-      const activeUsers = users?.filter(user => 
-        user.last_login_time && new Date(user.last_login_time) >= thirtyDaysAgo
-      ).length || 0;
-      
-      // 暂停用户：is_blocked 为 true 的用户
-      const suspendedUsers = users?.filter(user => user.is_blocked === true).length || 0;
-
       return {
-        totalUsers,
-        activeUsers,
-        newUsersThisMonth,
-        suspendedUsers
+        totalUsers: data?.totalUsers ?? 0,
+        activeUsers: data?.activeUsers30d ?? 0,
+        newUsersThisMonth: data?.newUsersThisMonth ?? 0,
+        suspendedUsers: data?.suspendedUsers ?? 0
       };
     } catch (error) {
       console.error('获取用户统计异常:', error);

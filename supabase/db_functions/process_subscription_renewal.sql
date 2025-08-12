@@ -20,9 +20,10 @@ DECLARE
   new_last_billing_date date := current_date;
   new_billing_period_end date;
 BEGIN
-  -- Step 1: Lock and retrieve the current subscription details
+  -- Step 1: Lock and retrieve the current subscription details (prevent concurrent double-charges)
   SELECT * INTO sub FROM public.subscriptions
-  WHERE id = p_subscription_id AND user_id = p_user_id;
+  WHERE id = p_subscription_id AND user_id = p_user_id
+  FOR UPDATE;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Subscription not found or user mismatch';
@@ -54,7 +55,7 @@ BEGIN
     sub.currency,
     new_last_billing_date, -- The start of the period covered by this payment is today
     new_billing_period_end, -- The end of the period covered by this payment is in the future
-    'succeeded'
+    'success'
   );
 
   -- Step 4: Atomically update the subscriptions table
