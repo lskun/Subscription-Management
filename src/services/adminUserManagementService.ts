@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { supabaseGateway } from '@/utils/supabase-gateway';
 import { AdminMiddleware, ADMIN_PERMISSIONS } from '../utils/adminMiddleware';
 import { adminAuthService } from './adminAuthService';
 
@@ -74,7 +75,7 @@ class AdminUserManagementService {
       }
 
       // 改为调用 RPC（super_admin 校验、绕过 RLS），服务端完成筛选/搜索/分页排序
-      const { data, error } = await supabase.rpc('list_users', {
+      const { data, error } = await supabaseGateway.rpc('list_users', {
         p_page: page,
         p_limit: limit,
         p_search: filters?.search || null,
@@ -400,7 +401,7 @@ class AdminUserManagementService {
   }> {
     try {
       // 调用带 super_admin 校验的 RPC，绕过 RLS 获取真实统计
-      const { data, error } = await supabase.rpc('get_user_stats');
+      const { data, error } = await supabaseGateway.rpc('get_user_stats');
       if (error) {
         return {
           totalUsers: 0,

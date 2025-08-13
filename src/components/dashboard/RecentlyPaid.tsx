@@ -14,6 +14,7 @@ interface DashboardSubscription {
 }
 import { formatDate } from "@/lib/subscription-utils";
 import { formatWithUserCurrency, formatCurrencyAmount } from "@/utils/currency";
+import { useSettingsStore } from "@/store/settingsStore";
 import {
   Card,
   CardContent,
@@ -30,6 +31,7 @@ interface RecentlyPaidProps {
 }
 
 export function RecentlyPaid({ subscriptions, className }: RecentlyPaidProps) {
+  const { currency: userCurrency } = useSettingsStore()
   return (
     <Card className={cn("min-h-[200px] flex flex-col", className)}>
       <CardHeader className="flex-shrink-0">
@@ -60,9 +62,14 @@ export function RecentlyPaid({ subscriptions, className }: RecentlyPaidProps) {
                 <div className="flex items-center gap-2">
                   <div className="text-right">
                     <div className="font-medium">
-                      {subscription.originalAmount && subscription.originalCurrency ? 
-                        `${formatCurrencyAmount(subscription.amount, subscription.currency)}(${formatCurrencyAmount(subscription.originalAmount, subscription.originalCurrency)})` :
-                        formatWithUserCurrency(subscription.amount, subscription.currency)
+                      {subscription.originalAmount && subscription.originalCurrency
+                        ? (
+                            // 若用户偏好币种与原始币种一致，仅显示原始金额；否则显示“已转换金额(原始金额)”
+                            userCurrency === subscription.originalCurrency
+                              ? formatCurrencyAmount(subscription.originalAmount, subscription.originalCurrency)
+                              : `${formatCurrencyAmount(subscription.amount, subscription.currency)}(${formatCurrencyAmount(subscription.originalAmount, subscription.originalCurrency)})`
+                          )
+                        : formatWithUserCurrency(subscription.amount, subscription.currency)
                       }
                     </div>
                     <div className="text-xs text-muted-foreground flex items-center gap-1">

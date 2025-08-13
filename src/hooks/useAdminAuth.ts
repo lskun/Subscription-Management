@@ -139,10 +139,11 @@ export function useAdminAuth(): UseAdminAuthReturn {
 
   // 管理员登录
   const login = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+    // 为向后兼容保留，但实际跳转由 AdminGuard 按钮处理
     try {
       const result = await adminAuthService.adminLogin();
       if (result.success) {
-        await checkAdminStatus(); // 刷新管理员状态
+        await checkAdminStatus();
       }
       return result;
     } catch (error) {

@@ -130,12 +130,17 @@ Deno.serve(async (req: Request) => {
       {
         user_id: userId,
         setting_key: 'theme',
-        setting_value: { value: 'system' }
+        setting_value: 'system'
       },
       {
         user_id: userId,
         setting_key: 'currency',
-        setting_value: { value: 'CNY' }
+        setting_value: 'CNY'
+      },
+      {
+        user_id: userId,
+        setting_key: 'show_original_currency',
+        setting_value: true
       },
       {
         user_id: userId,

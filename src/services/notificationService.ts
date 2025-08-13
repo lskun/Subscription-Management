@@ -1,5 +1,6 @@
 // 用户通知服务
 import { supabase } from '../lib/supabase'
+import { supabaseGateway } from '@/utils/supabase-gateway'
 
 // 通知类型定义
 export type NotificationType = 
@@ -601,7 +602,7 @@ class NotificationService {
    */
   async cleanupExpiredNotifications(): Promise<number> {
     try {
-      const { data, error } = await supabase.rpc('cleanup_expired_notifications')
+      const { data, error } = await supabaseGateway.rpc('cleanup_expired_notifications')
 
       if (error) {
         console.error('清理过期通知失败:', error)

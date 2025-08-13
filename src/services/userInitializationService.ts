@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { supabaseGateway } from '@/utils/supabase-gateway'
 import type { User } from '@supabase/supabase-js'
 
 /**
@@ -18,7 +19,7 @@ export class UserInitializationService {
       console.log('开始初始化新用户:', user.id)
 
       // 调用数据库函数初始化用户数据
-      const { data: initResult, error: initError } = await supabase.rpc('initialize_current_user_data')
+      const { data: initResult, error: initError } = await supabaseGateway.rpc('initialize_current_user_data')
 
       if (initError) {
         console.error('用户数据初始化失败:', initError)

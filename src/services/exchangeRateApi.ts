@@ -1,6 +1,7 @@
 import { logger } from '@/utils/logger';
 import { getBaseCurrency } from '@/config/currency';
 import { supabase } from '@/lib/supabase';
+import { supabaseGateway } from '@/utils/supabase-gateway';
 
 export interface ExchangeRate {
   id: number;
@@ -80,7 +81,7 @@ export class ExchangeRateApi {
    */
   static async updateRates(): Promise<{ message: string; updatedAt: string }> {
     try {
-      const { data, error } = await supabase.functions.invoke('update-exchange-rates');
+      const { data, error } = await supabaseGateway.invokeFunction('update-exchange-rates');
 
       if (error) throw error;
 

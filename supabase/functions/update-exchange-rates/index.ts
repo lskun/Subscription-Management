@@ -33,12 +33,24 @@ async function updateExchangeRates(
 ) {
   console.log(`Starting exchange rate update: ${updateType}`)
 
-  // Start logging the update
+  // 并发保护：检查是否已有“进行中”的任务（partial）
+  // 说明：这里采用“近实时并发检测”，避免多次重入；生产可考虑 pg_advisory_lock 封装 RPC
+  {
+    const { count: runningCount } = await supabase
+      .from('exchange_rate_update_logs')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'partial')
+    if ((runningCount ?? 0) > 0) {
+      throw new Error('An update task is already running')
+    }
+  }
+
+  // 记录任务开始（使用 partial 表示进行中，避免误判为成功）
   const { data: logData, error: logError } = await supabase
     .from('exchange_rate_update_logs')
     .insert({
       update_type: updateType,
-      status: 'success', // Will be updated later
+      status: 'partial', // 进行中，完成后会更新为 success/failed
       source: 'edge_function',
       started_at: new Date().toISOString()
     })
@@ -159,7 +171,7 @@ async function updateExchangeRates(
     updatedRates = rates.length
     console.log(`Successfully updated ${updatedRates} exchange rates`)
 
-    // Update log with success
+    // 更新日志为成功
     await supabase
       .from('exchange_rate_update_logs')
       .update({
@@ -180,7 +192,7 @@ async function updateExchangeRates(
     errorMessage = error instanceof Error ? error.message : 'Unknown error'
     console.error('Exchange rate update failed:', errorMessage)
 
-    // Update log with failure
+    // 更新日志为失败
     await supabase
       .from('exchange_rate_update_logs')
       .update({
@@ -195,26 +207,17 @@ async function updateExchangeRates(
   }
 }
 
-// 模拟调度器状态（Edge Functions是无状态的，实际调度由外部系统处理）
-function getSchedulerStatus() {
-  const now = new Date()
-  const next = new Date(now)
-
-  // 计算下一个6小时的整点
-  const currentHour = now.getUTCHours()
-  const nextHour = Math.ceil((currentHour + 1) / 6) * 6
-
-  if (nextHour >= 24) {
-    next.setUTCDate(next.getUTCDate() + 1)
-    next.setUTCHours(0, 0, 0, 0)
-  } else {
-    next.setUTCHours(nextHour, 0, 0, 0)
-  }
-
-  return {
-    isRunning: true, // Edge Functions总是"运行中"
-    nextUpdate: next.toISOString(),
-    description: 'Edge Function ready for scheduled calls'
+// 简单的 JWT 解析（不校验签名）：仅用于读 payload 中的 role 字段
+function getJwtRoleFromAuthHeader(authHeader: string | null): string | null {
+  try {
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return null
+    const token = authHeader.slice('Bearer '.length)
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+    const payload = JSON.parse(atob(parts[1]))
+    return payload?.role || null
+  } catch {
+    return null
   }
 }
 
@@ -240,6 +243,7 @@ serve(async (req) => {
     // 解析请求
     const url = new URL(req.url)
     const action = url.searchParams.get('action') || 'update'
+    const authHeader = req.headers.get('Authorization')
 
     // 处理不同的操作
     switch (action) {
@@ -247,6 +251,17 @@ serve(async (req) => {
         // 手动更新汇率
         const body = req.method === 'POST' ? await req.json() : {}
         const { updateType = 'manual', currencies = [] } = body
+
+        // 权限约束：scheduled 必须由服务端令牌触发（service_role）
+        if (updateType === 'scheduled') {
+          const role = getJwtRoleFromAuthHeader(authHeader)
+          if (role !== 'service_role') {
+            return new Response(
+              JSON.stringify({ success: false, error: 'Forbidden: scheduled update requires service_role' }),
+              { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 403 }
+            )
+          }
+        }
 
         const result = await updateExchangeRates(supabase, updateType, currencies, tianApiKey)
 
@@ -260,26 +275,23 @@ serve(async (req) => {
       }
 
       case 'status': {
-        // 获取调度器状态
-        const schedulerStatus = getSchedulerStatus()
+        // 权威状态：读取服务端调度器状态（统一事实源）
+        const { data: scheduler, error: statusError } = await supabase
+          .rpc('scheduler_status', { p_job_name: 'exchange_rates_update' })
 
         // 获取最新的更新统计
         const { data: stats, error: statsError } = await supabase.rpc('get_exchange_rate_stats')
 
-        if (statsError) {
-          console.error('Failed to get stats:', statsError)
+        if (statusError) {
+          return new Response(
+            JSON.stringify({ success: false, error: statusError.message }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+          )
         }
 
         return new Response(
-          JSON.stringify({
-            scheduler: schedulerStatus,
-            stats: stats || {},
-            timestamp: new Date().toISOString()
-          }),
-          {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 200,
-          }
+          JSON.stringify({ success: true, scheduler: scheduler?.[0] || null, stats: stats || {}, timestamp: new Date().toISOString() }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
         )
       }
 

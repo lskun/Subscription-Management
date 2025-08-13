@@ -36,8 +36,7 @@ function HomePage() {
   const {
     bulkAddSubscriptions,
     updateSubscription,
-    fetchSubscriptions,
-    initializeWithRenewals
+    fetchSubscriptions
   } = useSubscriptionStore()
 
   // Use the new dashboard data hook
@@ -80,17 +79,14 @@ function HomePage() {
     console.log('🔄 Starting manual data refresh...')
 
     try {
-      // Refresh subscription data with renewals
-      await initializeWithRenewals()
-
-      // Refresh dashboard data
+      // Refresh dashboard data only (Edge Function aggregates all needed data)
       await refreshDashboardData()
 
       console.log('✅ Manual data refresh completed')
 
       toast({
         title: "Data refreshed",
-        description: "Subscription data and renewal information have been updated"
+        description: "Dashboard analytics have been refreshed"
       })
     } catch (error) {
       console.error('❌ Failed to refresh data:', error)
@@ -102,7 +98,7 @@ function HomePage() {
     } finally {
       setIsRefreshing(false)
     }
-  }, [initializeWithRenewals, refreshDashboardData, toast])
+  }, [refreshDashboardData, toast])
 
 
 
@@ -139,13 +135,9 @@ function HomePage() {
     categoryBreakdown
   } = dashboardData
 
-  // Convert categoryBreakdown to the format expected by CategoryBreakdown component
-  const spendingByCategory = useMemo(() => {
-    const result: Record<string, number> = {}
-    categoryBreakdown.forEach(category => {
-      result[category.category] = category.amount
-    })
-    return result
+  // 直接传入带 label 的分类明细，避免额外 categories 查询依赖
+  const categoryItems = useMemo(() => {
+    return categoryBreakdown.map(c => ({ category: c.category, label: c.label, amount: c.amount }))
   }, [categoryBreakdown])
 
   // Show loading while authenticating or loading data
@@ -237,7 +229,7 @@ function HomePage() {
             subscriptions={upcomingRenewals}
           />
 
-          <CategoryBreakdown data={spendingByCategory} />
+          <CategoryBreakdown items={categoryItems} />
         </div>
       </div>
 

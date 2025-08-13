@@ -235,6 +235,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
     window.addEventListener('sessionTimeout', handleSessionTimeout)
     window.addEventListener('sessionExpired', handleSessionExpired as EventListener)
 
+    // 统一 401 处理：来自 supabaseGateway 的全局未授权事件
+    const handleAuthUnauthorized = async () => {
+      try {
+        toast.error('Your session has expired, please log in again')
+        await SessionService.signOut('token_invalid')
+      } finally {
+        // 统一跳转登录页
+        window.location.assign('/login')
+      }
+    }
+    window.addEventListener('auth:unauthorized', handleAuthUnauthorized as EventListener)
+
+    // 全局 403 处理：权限不足
+    const handleAuthForbidden = async () => {
+      toast.error('Permission denied')
+    }
+    window.addEventListener('auth:forbidden', handleAuthForbidden as EventListener)
+
     // 初始化
     initializeSession()
 
@@ -246,6 +264,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       SessionService.stopSessionManagement()
       window.removeEventListener('sessionTimeout', handleSessionTimeout)
       window.removeEventListener('sessionExpired', handleSessionExpired as EventListener)
+      window.removeEventListener('auth:unauthorized', handleAuthUnauthorized as EventListener)
+      window.removeEventListener('auth:forbidden', handleAuthForbidden as EventListener)
     }
   }, [])
 

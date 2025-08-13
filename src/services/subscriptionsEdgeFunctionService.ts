@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabaseGateway } from '@/utils/supabase-gateway'
 
 export interface SubscriptionsRequest {
   targetCurrency?: string
@@ -180,7 +180,7 @@ export class SubscriptionsEdgeFunctionService {
       try {
         console.log('调用 Subscriptions Edge Function...', request)
 
-        const { data, error } = await supabase.functions.invoke('subscriptions-management', {
+        const { data, error } = await supabaseGateway.invokeFunction('subscriptions-management', {
           body: request
         })
 

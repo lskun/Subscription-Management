@@ -1,5 +1,6 @@
 import { logger } from '@/utils/logger';
 import { supabase } from '@/lib/supabase';
+import { supabaseGateway } from '@/utils/supabase-gateway';
 
 // API响应类型定义
 export interface MonthlyCategorySummaryApiResponse {
@@ -264,7 +265,7 @@ export async function recalculateAllSummaries(): Promise<{ message: string; time
     logger.debug('Recalculating all summaries');
 
     // 使用Supabase函数重新计算汇总数据
-    const { error } = await supabase.rpc('recalculate_monthly_summaries');
+    const { error } = await supabaseGateway.rpc('recalculate_monthly_summaries');
 
     if (error) throw error;
 
@@ -286,7 +287,7 @@ export async function processPayment(paymentId: number): Promise<{ message: stri
     logger.debug('Processing payment:', paymentId);
 
     // 使用Supabase函数处理支付
-    const { error } = await supabase.rpc('process_payment_summary', {
+    const { error } = await supabaseGateway.rpc('process_payment_summary', {
       payment_id: paymentId
     });
 

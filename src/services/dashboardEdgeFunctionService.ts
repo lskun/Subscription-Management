@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabaseGateway } from '@/utils/supabase-gateway'
 
 export interface DashboardAnalyticsRequest {
   targetCurrency?: string
@@ -144,7 +144,7 @@ export class DashboardEdgeFunctionService {
       try {
         console.log('调用 Dashboard Edge Function...')
 
-        const { data, error } = await supabase.functions.invoke('dashboard-analytics', {
+        const { data, error } = await supabaseGateway.invokeFunction('dashboard-analytics', {
           body: {
             targetCurrency,
             includeUpcomingRenewals,

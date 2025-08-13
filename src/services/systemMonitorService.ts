@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { supabaseGateway } from '@/utils/supabase-gateway';
 
 /**
  * Supabase Metrics API 响应接口
@@ -105,9 +106,7 @@ export interface DatabasePerformanceMetrics {
  */
 export const fetchDatabaseMetricsFromEdgeFunction = async (): Promise<EdgeFunctionMetricsResponse> => {
   try {
-    const { data, error } = await supabase.functions.invoke('database-metrics', {
-      method: 'GET'
-    });
+    const { data, error } = await supabaseGateway.invokeFunction('database-metrics');
 
     if (error) {
       console.error('Error calling database-metrics Edge Function:', error);

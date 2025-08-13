@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAdminAuth } from '../../hooks/useAdminAuth';
 import { usePermissionCheck } from '../../hooks/useAdminPermissions';
 import { Alert, AlertDescription } from '../ui/alert';
@@ -20,6 +21,7 @@ export function AdminGuard({
 }: AdminGuardProps) {
   const { isAdmin, isLoading, login } = useAdminAuth();
   const permissionCheck = usePermissionCheck(requiredPermission || '');
+  const navigate = useNavigate();
   
   // 如果需要特定权限，使用权限检查Hook的结果
   const hasRequiredPermission = requiredPermission 
@@ -55,7 +57,7 @@ export function AdminGuard({
                 <p>您没有管理员权限，无法访问此页面。</p>
                 {showLoginButton && (
                   <Button
-                    onClick={login}
+                    onClick={() => navigate('/admin/login')}
                     variant="outline"
                     size="sm"
                     className="border-red-300 text-red-700 hover:bg-red-100"

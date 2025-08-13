@@ -1,5 +1,6 @@
 // 邮件通知服务
 import { supabase } from '../lib/supabase'
+import { supabaseGateway } from '@/utils/supabase-gateway'
 
 // 邮件类型定义
 export type EmailType = 
@@ -77,7 +78,7 @@ class EmailNotificationService {
     try {
       console.log('发送邮件通知:', request)
 
-      const { data, error } = await supabase.functions.invoke('send-notification-email', {
+      const { data, error } = await supabaseGateway.invokeFunction('send-notification-email', {
         body: request
       })
 

@@ -13,10 +13,11 @@ import { formatCurrencyAmount } from '@/utils/currency';
 import { logger } from '@/utils/logger';
 import { CURRENCY_NAMES } from '@/config/constants';
 import { supabaseExchangeRateService, type ExchangeRateHistory, type ExchangeRateUpdateLog, type ExchangeRateStats } from '@/services/supabaseExchangeRateService';
-import { exchangeRateScheduler, type SchedulerStatus } from '@/services/exchangeRateScheduler';
-import { supabase } from '@/lib/supabase';
+import { supabaseGateway } from '@/utils/supabase-gateway';
+import { useAdminAuth } from '@/hooks/useAdminAuth';
 
 export function ExchangeRateManager() {
+  const { isAdmin, hasPermission } = useAdminAuth();
   const {
     exchangeRates,
     lastExchangeRateUpdate,
@@ -35,7 +36,21 @@ export function ExchangeRateManager() {
   const [rateStats, setRateStats] = useState<ExchangeRateStats | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
-  const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatus | null>(null);
+  // 服务端统一调度器状态（替代前端本地定时器）
+  // 说明：从 DB RPC `scheduler_status('exchange_rates_update')` 读取，作为单一事实源
+  type ServerSchedulerStatus = {
+    job_name: string
+    job_type: string
+    cron_spec: string
+    timezone: string
+    is_enabled: boolean
+    pg_cron_job_id?: number | null
+    last_run_at: string | null
+    next_run_at: string | null
+    last_status: string | null
+    failed_attempts: number
+  }
+  const [schedulerStatus, setSchedulerStatus] = useState<ServerSchedulerStatus | null>(null);
   const [isLoadingScheduler, setIsLoadingScheduler] = useState(false);
 
   // Load exchange rate statistics
@@ -78,18 +93,19 @@ export function ExchangeRateManager() {
   const handleUpdateRates = async () => {
     setIsUpdating(true);
     try {
-      const result = await exchangeRateScheduler.triggerUpdate();
-      
-      if (result.success) {
-        // Refresh exchange rate data
-        await fetchExchangeRates();
-        await loadRateStats();
-        await loadUpdateLogs();
-        await loadSchedulerStatus();
-        logger.info(`Successfully updated ${result.ratesUpdated} exchange rates`);
-      } else {
-        throw new Error(result.error || 'Update failed');
+      // 改为通过 Edge Function 触发（由 supabaseGateway 统一处理 401/403）
+      const result = await supabaseExchangeRateService.triggerExchangeRateUpdate('manual');
+
+      if (!result?.success) {
+        throw new Error('Update failed');
       }
+
+      // Refresh exchange rate data
+      await fetchExchangeRates();
+      await loadRateStats();
+      await loadUpdateLogs();
+      await loadSchedulerStatus();
+      logger.info(`Successfully updated ${result.rates_updated} exchange rates`);
     } catch (error) {
       logger.error('Failed to update exchange rates:', error);
     } finally {
@@ -97,14 +113,26 @@ export function ExchangeRateManager() {
     }
   };
 
-  // Load scheduler status
+  // 加载“服务端统一调度器”状态
+  // 关键说明：不再读取前端本地定时器；统一从 RPC 获取 `exchange_rates_update` 的真实状态
   const loadSchedulerStatus = async () => {
     setIsLoadingScheduler(true);
     try {
-      const status = exchangeRateScheduler.getStatus();
-      setSchedulerStatus(status);
+      // 优先管理员接口，失败时（403）回退到公开只读状态接口
+      const res = await supabaseGateway.rpc<ServerSchedulerStatus[] | null>('scheduler_status', { p_job_name: 'exchange_rates_update' });
+      let data = res.data; let error = res.error;
+      if (error) {
+        const msg = String(error?.message || '');
+        if (/403|forbidden/i.test(msg)) {
+          const fb = await supabaseGateway.rpc<ServerSchedulerStatus[] | null>('scheduler_status_public', { p_job_name: 'exchange_rates_update' });
+          data = fb.data; error = fb.error;
+        }
+      }
+      if (error) throw error
+      setSchedulerStatus(Array.isArray(data) ? (data?.[0] || null) : null);
     } catch (error) {
       logger.error('Failed to load scheduler status:', error);
+      setSchedulerStatus(null);
     } finally {
       setIsLoadingScheduler(false);
     }
@@ -122,17 +150,36 @@ export function ExchangeRateManager() {
     }
   };
 
-  // Start/stop scheduler
-  const handleToggleScheduler = () => {
-    if (schedulerStatus?.isRunning) {
-      exchangeRateScheduler.stop();
-    } else {
-      exchangeRateScheduler.start();
+  // 启停“服务端统一调度器”
+  // 关键修复（中文注释）：
+  // - 由前端本地 setInterval 切换为服务端 pg_cron 统一调度
+  // - 通过 RPC `scheduler_start/stop` 控制，避免多浏览器/多用户重复执行
+  const handleToggleScheduler = async () => {
+    try {
+      if (schedulerStatus?.is_enabled) {
+        const { error } = await supabaseGateway.rpc('scheduler_stop', { p_job_name: 'exchange_rates_update' });
+        if (error) throw error
+      } else {
+        const { error } = await supabaseGateway.rpc('scheduler_start', {
+          p_job_name: 'exchange_rates_update',
+          p_cron: '0 2 * * *', // 默认每日 02:00（24 小时）
+          p_timezone: 'Asia/Shanghai',
+          p_payload: { function: 'update-exchange-rates', body: { updateType: 'scheduled' } }
+        });
+        if (error) throw error
+      }
+      await loadSchedulerStatus();
+    } catch (error) {
+      logger.error('Failed to toggle scheduler:', error);
+      // 非管理员会命中 403：这里只做温和提示（读写隔离）
+      try { 
+        // @ts-ignore: toast hook exists in app
+        window.dispatchEvent(new CustomEvent('app:toast', { detail: { title: '权限不足', description: '仅管理员可启停服务端调度器', variant: 'destructive' } }))
+      } catch {}
     }
-    loadSchedulerStatus();
   };
 
-  // Load statistics when component mounts
+  // 初始加载：统计与统一调度状态
   useEffect(() => {
     loadRateStats();
     loadSchedulerStatus();
@@ -282,7 +329,7 @@ export function ExchangeRateManager() {
                 <div className="flex gap-2 mt-4">
                   <Button
                     onClick={handleUpdateRates}
-                    disabled={isUpdating}
+                    disabled={isUpdating || !isAdmin || !hasPermission('manage_system')}
                     size="sm"
                   >
                     {isUpdating ? (
@@ -378,14 +425,14 @@ export function ExchangeRateManager() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="p-4 border rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
-                        <Activity className={`h-4 w-4 ${schedulerStatus.isRunning ? 'text-green-500' : 'text-red-500'}`} />
+                        <Activity className={`h-4 w-4 ${schedulerStatus?.is_enabled ? 'text-green-500' : 'text-red-500'}`} />
                         <span className="font-medium">Scheduler Status</span>
                       </div>
                       <p className="text-lg font-semibold">
-                        {schedulerStatus.isRunning ? 'Running' : 'Stopped'}
+                        {schedulerStatus?.is_enabled ? 'Running' : 'Stopped'}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Frontend automatic update scheduler
+                        Server-side scheduler (pg_cron + Edge Function)
                       </p>
                     </div>
                     
@@ -395,8 +442,8 @@ export function ExchangeRateManager() {
                         <span className="font-medium">Next Update Time</span>
                       </div>
                       <p className="text-lg font-semibold">
-                        {schedulerStatus.nextUpdate 
-                          ? formatUpdateTime(schedulerStatus.nextUpdate)
+                        {schedulerStatus?.next_run_at 
+                          ? formatUpdateTime(schedulerStatus.next_run_at)
                           : 'Not set'
                         }
                       </p>
@@ -411,7 +458,7 @@ export function ExchangeRateManager() {
                         <span className="font-medium">Failed Attempts</span>
                       </div>
                       <p className="text-lg font-semibold">
-                        {schedulerStatus.failedAttempts}
+                         {schedulerStatus?.failed_attempts ?? 0}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         Consecutive failed attempts
@@ -429,28 +476,29 @@ export function ExchangeRateManager() {
                         </Label>
                         <Switch
                           id="scheduler-toggle"
-                          checked={schedulerStatus.isRunning}
+                          checked={!!schedulerStatus?.is_enabled}
                           onCheckedChange={handleToggleScheduler}
+                          disabled={!isAdmin || !hasPermission('manage_system')}
                         />
                       </div>
                     </div>
                     <ul className="text-sm text-blue-800 space-y-1">
-                      <li>• Updates exchange rate data every 6 hours</li>
+                      <li>• Updates exchange rate data every 24 hours</li>
                       <li>• Supports manual trigger updates</li>
                       <li>• Automatically retries on failure (up to 3 times)</li>
-                      <li>• Update interval: {Math.round(schedulerStatus.updateInterval / (60 * 60 * 1000))} hours</li>
+                      <li>• Cron: {schedulerStatus?.cron_spec || '0 2 * * *'} ({schedulerStatus?.timezone || 'Asia/Shanghai'})</li>
                     </ul>
                   </div>
 
                   {/* Last Update Information */}
-                  {schedulerStatus.lastUpdate && (
+                  {schedulerStatus?.last_run_at && (
                     <div className="p-4 border rounded-lg">
                       <div className="flex items-center gap-2 mb-2">
                         <RefreshCw className="h-4 w-4 text-green-500" />
                         <span className="font-medium">Last Update Time</span>
                       </div>
                       <p className="text-lg">
-                        {formatUpdateTime(schedulerStatus.lastUpdate)}
+                        {formatUpdateTime(schedulerStatus.last_run_at)}
                       </p>
                       <p className="text-sm text-muted-foreground">
                         Time of last successful exchange rate data update
@@ -464,7 +512,7 @@ export function ExchangeRateManager() {
                       onClick={loadSchedulerStatus}
                       variant="outline"
                       size="sm"
-                      disabled={isLoadingScheduler}
+                      disabled={isLoadingScheduler || !isAdmin || !hasPermission('manage_system')}
                     >
                       {isLoadingScheduler ? (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -477,7 +525,7 @@ export function ExchangeRateManager() {
                     <Button
                       onClick={handleUpdateRates}
                       size="sm"
-                      disabled={isUpdating}
+                      disabled={isUpdating || !isAdmin || !hasPermission('manage_system')}
                     >
                       {isUpdating ? (
                         <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -491,6 +539,7 @@ export function ExchangeRateManager() {
                       onClick={() => handleCleanupOldData(90)}
                       variant="outline"
                       size="sm"
+                      disabled={!isAdmin || !hasPermission('manage_system')}
                     >
                       <Trash2 className="h-4 w-4 mr-2" />
                       Clean Up Old Data

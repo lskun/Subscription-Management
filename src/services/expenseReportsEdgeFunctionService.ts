@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase'
+import { supabaseGateway } from '@/utils/supabase-gateway'
 
 export interface MonthlyExpense {
   month: string
@@ -70,11 +70,9 @@ class ExpenseReportsEdgeFunctionService {
     try {
       console.log('Calling expense-reports edge function')
 
-      const { data, error } = await supabase.functions.invoke<ExpenseReportsApiResponse>(
+      const { data, error } = await supabaseGateway.invokeFunction<ExpenseReportsApiResponse>(
         this.functionName,
-        {
-          body: request,
-        }
+        { body: request }
       )
 
       if (error) {

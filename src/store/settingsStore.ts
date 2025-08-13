@@ -2,10 +2,12 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { supabaseGateway } from '@/utils/supabase-gateway'
 import { supabaseExchangeRateService, SupabaseExchangeRateService } from '@/services/supabaseExchangeRateService'
 import { logger } from '@/utils/logger'
 import { BASE_CURRENCY, DEFAULT_EXCHANGE_RATES, type CurrencyType } from '@/config/currency'
 import { supabaseUserSettingsService, type ThemeType } from '@/services/supabaseUserSettingsService'
+import { toast } from 'sonner'
 
 export type { ThemeType }
 
@@ -54,6 +56,7 @@ interface SettingsState {
   lastExchangeRateUpdate: string | null // 最后更新汇率的时间
   updateLastExchangeRateUpdate: () => void
   fetchExchangeRates: () => Promise<void> // 从缓存或API获取汇率
+  fetchExchangeRatesIfNeeded: () => Promise<void> // 懒加载按需获取汇率
   updateExchangeRatesFromApi: () => Promise<void> // 强制从API更新汇率
 
   // 数据管理
@@ -260,15 +263,7 @@ export const useSettingsStore = create<SettingsState>()(
               _fetchPromise: null
             })
 
-            // 用户登录后自动获取汇率数据，确保汇率数据完整
-            try {
-              console.log('🔄 自动获取汇率数据')
-              await get().fetchExchangeRates()
-              console.log('✅ 汇率数据获取成功')
-            } catch (exchangeRateError: any) {
-              // 汇率获取失败不应该影响用户设置的获取
-              logger.warn('⚠️ 汇率数据获取失败，但不影响用户设置:', exchangeRateError)
-            }
+            // 不再在此自动拉取汇率，改为懒加载（按需触发）
 
           } catch (error: any) {
             logger.error('❌ 获取用户设置失败:', error)
@@ -317,13 +312,25 @@ export const useSettingsStore = create<SettingsState>()(
         try {
           await supabaseUserSettingsService.setCurrency(currency)
           
-          // 清除用户配置相关缓存，确保下次获取最新数据
-          const { clearGlobalCacheByType, clearUserCache } = get()
-          clearGlobalCacheByType('userProfile')
+          // 更新本地完整设置缓存，提升UI即时一致性
+          // 注意：`userSettingsCache` 存储为后端表的原始键值结构，这里直接写入分拆键
+          set((state) => ({
+            userSettingsCache: {
+              ...(state.userSettingsCache || {}),
+              currency,
+            },
+            userSettingsCacheTimestamp: Date.now(),
+          }))
+
+          // 清除与“用户设置”相关的通用缓存，以便其他模块按需刷新
+          const { clearGlobalCacheByType } = get()
           clearGlobalCacheByType('userSettings')
-          clearUserCache() // 清除用户缓存，触发重新获取
+
+          // 反馈提示
+          toast.success('Default currency updated')
         } catch (error: any) {
           logger.error('Error saving currency setting:', error)
+          toast.error('Failed to update default currency')
           // 可选择在此处回滚本地更改
         }
       },
@@ -363,13 +370,24 @@ export const useSettingsStore = create<SettingsState>()(
         try {
           await supabaseUserSettingsService.setShowOriginalCurrency(showOriginalCurrency)
           
-          // 清除用户配置相关缓存，确保下次获取最新数据
-          const { clearGlobalCacheByType, clearUserCache } = get()
-          clearGlobalCacheByType('userProfile')
+          // 更新本地完整设置缓存，保持与后端一致
+          set((state) => ({
+            userSettingsCache: {
+              ...(state.userSettingsCache || {}),
+              show_original_currency: showOriginalCurrency,
+            },
+            userSettingsCacheTimestamp: Date.now(),
+          }))
+
+          // 清除与“用户设置”相关的通用缓存，以便其他模块按需刷新
+          const { clearGlobalCacheByType } = get()
           clearGlobalCacheByType('userSettings')
-          clearUserCache() // 清除用户缓存，触发重新获取
+
+          // 反馈提示
+          toast.success('Original currency display setting updated')
         } catch (error: any) {
           logger.error('Error saving showOriginalCurrency setting:', error)
+          toast.error('Failed to update original currency display setting')
           // 可选择在此处回滚本地更改
         }
       },
@@ -444,21 +462,42 @@ export const useSettingsStore = create<SettingsState>()(
       },
 
       /**
+       * 懒加载：按需获取汇率数据
+       * - 若从未获取过（lastExchangeRateUpdate 为空）或数据已过期，则触发 fetchExchangeRates
+       * - 否则直接返回
+       */
+      fetchExchangeRatesIfNeeded: async () => {
+        const state = get()
+        const now = Date.now()
+        const last = state.lastExchangeRateUpdate ? Date.parse(state.lastExchangeRateUpdate) : 0
+        // 过期阈值：6小时
+        const STALE_MS = 6 * 60 * 60 * 1000
+
+        const isMissing = !state.exchangeRates || Object.keys(state.exchangeRates || {}).length === 0
+        const isStale = !last || (now - last) > STALE_MS
+        if (isMissing || isStale) {
+          try {
+            await state.fetchExchangeRates()
+          } catch (e) {
+            // 静默失败：不影响调用方主流程
+            logger.warn('fetchExchangeRatesIfNeeded: failed to refresh rates lazily', e)
+          }
+        }
+      },
+
+      /**
        * 从API强制更新汇率数据
        * 使用Edge Function调用外部API更新汇率
        */
       updateExchangeRatesFromApi: async () => {
         try {
-          // 动态导入Supabase客户端
-          const { supabase } = await import('@/lib/supabase');
-
-          // 调用Edge Function更新汇率
-          const { data, error } = await supabase.functions.invoke('update-exchange-rates', {
+          // 调用 Edge Function 更新汇率（统一网关，自动附带 JWT + 401 刷新重试）
+          const { data, error } = await supabaseGateway.invokeFunction('update-exchange-rates', {
             body: {
-              updateType: 'manual', // 手动更新类型
-              currencies: ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'] // 需要更新的货币列表
+              updateType: 'manual', // 手动更新
+              currencies: ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'] // 更新所有货币
             }
-          });
+          })
 
           // 检查Edge Function调用错误
           if (error) {

@@ -30,18 +30,18 @@ interface UserPreferencesFormProps {
   onPreferencesUpdate?: (preferences: UserPreferences) => void
 }
 
-// 支持的货币列表
+// Supported currency list
 const SUPPORTED_CURRENCIES = [
-  { value: 'CNY', label: '人民币 (¥)', symbol: '¥' },
-  { value: 'USD', label: '美元 ($)', symbol: '$' },
-  { value: 'EUR', label: '欧元 (€)', symbol: '€' },
-  { value: 'GBP', label: '英镑 (£)', symbol: '£' },
-  { value: 'JPY', label: '日元 (¥)', symbol: '¥' },
-  { value: 'KRW', label: '韩元 (₩)', symbol: '₩' },
-  { value: 'HKD', label: '港币 (HK$)', symbol: 'HK$' },
-  { value: 'SGD', label: '新加坡元 (S$)', symbol: 'S$' },
-  { value: 'AUD', label: '澳元 (A$)', symbol: 'A$' },
-  { value: 'CAD', label: '加元 (C$)', symbol: 'C$' }
+  { value: 'CNY', label: 'Chinese Yuan (¥)', symbol: '¥' },
+  { value: 'USD', label: 'US Dollar ($)', symbol: '$' },
+  { value: 'EUR', label: 'Euro (€)', symbol: '€' },
+  { value: 'GBP', label: 'British Pound (£)', symbol: '£' },
+  { value: 'JPY', label: 'Japanese Yen (¥)', symbol: '¥' },
+  { value: 'KRW', label: 'Korean Won (₩)', symbol: '₩' },
+  { value: 'HKD', label: 'Hong Kong Dollar (HK$)', symbol: 'HK$' },
+  { value: 'SGD', label: 'Singapore Dollar (S$)', symbol: 'S$' },
+  { value: 'AUD', label: 'Australian Dollar (A$)', symbol: 'A$' },
+  { value: 'CAD', label: 'Canadian Dollar (C$)', symbol: 'C$' }
 ] as const
 
 export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferencesFormProps) {
@@ -49,7 +49,7 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  // 加载用户偏好设置
+  // Load user preferences
   useEffect(() => {
     loadUserPreferences()
   }, [user.id])
@@ -60,14 +60,14 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
       const userPreferences = await UserProfileService.getUserPreferences(user.id)
       setPreferences(userPreferences)
     } catch (error) {
-      console.error('加载用户偏好设置失败:', error)
-      toast.error('加载偏好设置失败')
+      console.error('Failed to load user preferences:', error)
+      toast.error('Failed to load preferences')
     } finally {
       setLoading(false)
     }
   }
 
-  // 更新偏好设置
+  // Update top-level preference
   const updatePreference = <K extends keyof UserPreferences>(
     key: K,
     value: UserPreferences[K]
@@ -80,7 +80,7 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
     }))
   }
 
-  // 更新嵌套的偏好设置
+  // Update nested preference
   const updateNestedPreference = <
     K extends keyof UserPreferences,
     NK extends keyof UserPreferences[K]
@@ -107,22 +107,34 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
     })
   }
 
-  // 保存偏好设置
+  // Save preferences
   const handleSave = async () => {
     if (!preferences) return
 
     try {
       setSaving(true)
-      const updatedPreferences = await UserProfileService.updateUserPreferences(preferences, user.id)
-      
-      // 更新本地状态为服务器返回的最新数据
-      setPreferences(updatedPreferences)
-      
-      toast.success('偏好设置已保存')
-      onPreferencesUpdate?.(updatedPreferences)
+      // 分拆写入：与 DB 表结构对齐，避免写入聚合键
+      // 将 UI 的 payment_confirmations 映射为 DB 的 payment_notifications；保留 push 字段
+      const notificationsOut = {
+        email: preferences.notifications.email,
+        renewal_reminders: preferences.notifications.renewal_reminders,
+        payment_notifications: preferences.notifications.payment_confirmations,
+        push: preferences.notifications.push
+      }
+
+      // 单请求批量 upsert，避免并发导致的唯一键冲突
+      await UserProfileService.setUserSettingsBulk([
+        { key: 'theme', value: preferences.theme },
+        { key: 'currency', value: preferences.currency },
+        { key: 'notifications', value: notificationsOut }
+      ], user.id)
+
+      // 本地状态即为最新，无需等待回读
+      toast.success('Preferences saved')
+      onPreferencesUpdate?.(preferences)
     } catch (error) {
-      console.error('保存偏好设置失败:', error)
-      toast.error('保存偏好设置失败')
+      console.error('Failed to save preferences:', error)
+      toast.error('Failed to save preferences')
     } finally {
       setSaving(false)
     }
@@ -133,7 +145,7 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
       <Card>
         <CardContent className="flex items-center justify-center py-8">
           <Loader2 className="h-6 w-6 animate-spin" />
-          <span className="ml-2">加载中...</span>
+          <span className="ml-2">Loading...</span>
         </CardContent>
       </Card>
     )
@@ -143,7 +155,7 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
     return (
       <Card>
         <CardContent className="flex items-center justify-center py-8">
-          <p className="text-muted-foreground">无法加载偏好设置</p>
+          <p className="text-muted-foreground">Unable to load preferences</p>
         </CardContent>
       </Card>
     )
@@ -151,24 +163,22 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
 
   return (
     <div className="space-y-6">
-      {/* 外观设置 */}
+      {/* Appearance */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Palette className="h-5 w-5" />
-            <span>外观设置</span>
+            <span>Appearance</span>
           </CardTitle>
           <CardDescription>
-            自定义界面外观和显示偏好
+            Customize the interface appearance and display preferences
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label>主题模式</Label>
-              <p className="text-sm text-muted-foreground">
-                选择浅色、深色或跟随系统设置
-              </p>
+              <Label>Theme</Label>
+              <p className="text-sm text-muted-foreground">Choose light, dark, or follow system</p>
             </div>
             <Select
               value={preferences.theme}
@@ -180,71 +190,31 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="light">浅色</SelectItem>
-                <SelectItem value="dark">深色</SelectItem>
-                <SelectItem value="system">跟随系统</SelectItem>
+                <SelectItem value="light">Light</SelectItem>
+                <SelectItem value="dark">Dark</SelectItem>
+                <SelectItem value="system">System</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </CardContent>
-      </Card>
+      </Card>     
 
-      {/* 货币设置 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <DollarSign className="h-5 w-5" />
-            <span>货币设置</span>
-          </CardTitle>
-          <CardDescription>
-            设置默认货币和汇率显示
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>默认货币</Label>
-              <p className="text-sm text-muted-foreground">
-                用于显示价格和统计信息
-              </p>
-            </div>
-            <Select
-              value={preferences.currency}
-              onValueChange={(value) => updatePreference('currency', value)}
-            >
-              <SelectTrigger className="w-[180px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SUPPORTED_CURRENCIES.map((currency) => (
-                  <SelectItem key={currency.value} value={currency.value}>
-                    {currency.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 通知设置 */}
+      {/* Notifications */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center space-x-2">
             <Bell className="h-5 w-5" />
-            <span>通知设置</span>
+            <span>Notifications</span>
           </CardTitle>
           <CardDescription>
-            管理您希望接收的通知类型
+            Manage the types of notifications you want to receive
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label>邮件通知</Label>
-              <p className="text-sm text-muted-foreground">
-                接收重要更新和系统通知
-              </p>
+              <Label>Email notifications</Label>
+              <p className="text-sm text-muted-foreground">Receive important updates and alerts</p>
             </div>
             <Switch
               checked={preferences.notifications.email}
@@ -258,10 +228,8 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
 
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label>推送通知</Label>
-              <p className="text-sm text-muted-foreground">
-                浏览器推送通知
-              </p>
+              <Label>Push notifications</Label>
+              <p className="text-sm text-muted-foreground">Browser push notifications</p>
             </div>
             <Switch
               checked={preferences.notifications.push}
@@ -275,10 +243,8 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
 
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label>续费提醒</Label>
-              <p className="text-sm text-muted-foreground">
-                订阅即将到期时提醒
-              </p>
+              <Label>Renewal reminders</Label>
+              <p className="text-sm text-muted-foreground">Notify when subscriptions are about to renew</p>
             </div>
             <Switch
               checked={preferences.notifications.renewal_reminders}
@@ -292,10 +258,8 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
 
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <Label>支付确认</Label>
-              <p className="text-sm text-muted-foreground">
-                支付成功或失败通知
-              </p>
+              <Label>Payment notifications</Label>
+              <p className="text-sm text-muted-foreground">Notify on payment success or failure</p>
             </div>
             <Switch
               checked={preferences.notifications.payment_confirmations}
@@ -307,61 +271,63 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
         </CardContent>
       </Card>
 
-      {/* 隐私设置 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <Shield className="h-5 w-5" />
-            <span>隐私设置</span>
-          </CardTitle>
-          <CardDescription>
-            控制您的数据和隐私偏好
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>个人资料可见性</Label>
-              <p className="text-sm text-muted-foreground">
-                控制其他用户是否可以查看您的个人资料
-              </p>
+      {/**
+       * 临时注释：隐藏 Privacy 卡片
+       * 原因：需求调整/待后端字段与权限策略确定，先下线该部分 UI，避免产生无效写入。
+       * 注意：恢复时请同步核对 `preferences.privacy` 的数据结构与保存逻辑。
+       */}
+      {false && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Shield className="h-5 w-5" />
+              <span>Privacy</span>
+            </CardTitle>
+            <CardDescription>
+              Control your data and privacy preferences
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Profile visibility</Label>
+                <p className="text-sm text-muted-foreground">Control whether others can view your profile</p>
+              </div>
+              <Select
+                value={preferences.privacy.profile_visibility}
+                onValueChange={(value: 'public' | 'private') => 
+                  updateNestedPreference('privacy', 'profile_visibility', value)
+                }
+              >
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="public">Public</SelectItem>
+                  <SelectItem value="private">Private</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <Select
-              value={preferences.privacy.profile_visibility}
-              onValueChange={(value: 'public' | 'private') => 
-                updateNestedPreference('privacy', 'profile_visibility', value)
-              }
-            >
-              <SelectTrigger className="w-[120px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="public">公开</SelectItem>
-                <SelectItem value="private">私密</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
 
-          <Separator />
+            <Separator />
 
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label>数据共享</Label>
-              <p className="text-sm text-muted-foreground">
-                允许匿名数据用于产品改进
-              </p>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Data sharing</Label>
+                <p className="text-sm text-muted-foreground">Allow anonymous data to improve the product</p>
+              </div>
+              <Switch
+                checked={preferences.privacy.data_sharing}
+                onCheckedChange={(checked) => 
+                  updateNestedPreference('privacy', 'data_sharing', checked)
+                }
+              />
             </div>
-            <Switch
-              checked={preferences.privacy.data_sharing}
-              onCheckedChange={(checked) => 
-                updateNestedPreference('privacy', 'data_sharing', checked)
-              }
-            />
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* 保存按钮 */}
+      {/* Save button */}
       <div className="flex justify-end">
         <Button 
           onClick={handleSave} 
@@ -371,12 +337,12 @@ export function UserPreferencesForm({ user, onPreferencesUpdate }: UserPreferenc
           {saving ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              保存中...
+              Saving...
             </>
           ) : (
             <>
               <Save className="mr-2 h-4 w-4" />
-              保存偏好设置
+              Save preferences
             </>
           )}
         </Button>

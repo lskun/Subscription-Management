@@ -1,6 +1,9 @@
 import { Route, Routes } from "react-router-dom"
 import { Suspense, lazy } from "react"
 import { Toaster } from "./components/ui/toaster"
+// 修复：项目内大量使用 `import { toast } from 'sonner'`，但未在根组件挂载 Sonner 的 <Toaster />
+// 这里为 Sonner 的 Toaster 添加挂载（使用别名避免与 Shadcn Toaster 同名冲突）
+import { Toaster as SonnerToaster } from "sonner"
 import { ThemeProvider } from "./components/ThemeProvider"
 import { AuthProvider } from "./contexts/AuthContext"
 import { ProtectedRoute } from "./components/ProtectedRoute"
@@ -85,6 +88,8 @@ function App() {
           autoRefreshThreshold={2 * 60 * 1000} // 2分钟前自动刷新
           enableAutoRefresh={true}
         />
+        {/* Sonner Toaster：用于显示 import { toast } from 'sonner' 产生的通知 */}
+        <SonnerToaster richColors closeButton />
         <Toaster />
       </ThemeProvider>
     </AuthProvider>

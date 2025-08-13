@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { supabaseGateway } from '@/utils/supabase-gateway'
 import { logger } from '@/utils/logger'
 import { getBaseCurrency } from '@/config/currency'
 
@@ -483,7 +484,7 @@ export class SupabaseExchangeRateService {
     currencies?: string[]
   ): Promise<{ success: boolean; rates_updated: number; log_id: string }> {
     try {
-      const { data, error } = await supabase.functions.invoke('update-exchange-rates', {
+      const { data, error } = await supabaseGateway.invokeFunction('update-exchange-rates', {
         body: {
           updateType,
           currencies: currencies || ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']

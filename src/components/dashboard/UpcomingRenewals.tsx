@@ -24,6 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 
 import { cn } from "@/lib/utils"
+import { useSettingsStore } from "@/store/settingsStore";
 
 interface UpcomingRenewalsProps {
   subscriptions: DashboardSubscription[]
@@ -31,6 +32,7 @@ interface UpcomingRenewalsProps {
 }
 
 export function UpcomingRenewals({ subscriptions, className }: UpcomingRenewalsProps) {
+  const { currency: userCurrency } = useSettingsStore()
   const getBadgeVariant = (daysLeft: number) => {
     if (daysLeft <= 3) return "destructive"
     if (daysLeft <= 7) return "warning"
@@ -75,10 +77,15 @@ export function UpcomingRenewals({ subscriptions, className }: UpcomingRenewalsP
                   <div className="flex items-center gap-2">
                     <div className="text-right">
                       <div className="font-medium">
-                        {subscription.originalAmount && subscription.originalCurrency ? 
-                          `${formatCurrencyAmount(subscription.amount, subscription.currency)}(${formatCurrencyAmount(subscription.originalAmount, subscription.originalCurrency)})` :
-                          formatWithUserCurrency(subscription.amount, subscription.currency)
-                        }
+                      {subscription.originalAmount && subscription.originalCurrency
+                        ? (
+                            // 若用户偏好币种与原始币种一致，仅显示原始金额；否则显示“已转换金额(原始金额)”
+                            userCurrency === subscription.originalCurrency
+                              ? formatCurrencyAmount(subscription.originalAmount, subscription.originalCurrency)
+                              : `${formatCurrencyAmount(subscription.amount, subscription.currency)}(${formatCurrencyAmount(subscription.originalAmount, subscription.originalCurrency)})`
+                          )
+                        : formatWithUserCurrency(subscription.amount, subscription.currency)
+                      }                     
                       </div>
                       <div className="text-xs text-muted-foreground flex items-center gap-1">
                         <CalendarIcon className="h-3 w-3" />

@@ -411,16 +411,14 @@ export class UserProfileService {
             .select('setting_value')
             .eq('user_id', targetUserId)
             .eq('setting_key', settingKey)
-            .single()
+            .maybeSingle()
 
-          if (error) {
-            if (error.code === 'PGRST116') {
-              // 设置不存在，返回null并缓存
-              console.log('📝 User setting doesn\'t exist, caching null value:', settingKey, targetUserId)
-              useSettingsStore.getState().setGlobalCache(cacheKey, null)
-              return null
-            }
-            throw error
+          if (error) throw error
+          if (!data) {
+            // 设置不存在，返回null并缓存
+            console.log('📝 User setting doesn\'t exist, caching null value:', settingKey, targetUserId)
+            useSettingsStore.getState().setGlobalCache(cacheKey, null)
+            return null
           }
 
           console.log('✅ User setting fetch successful, setting cache:', settingKey, targetUserId)
@@ -464,13 +462,72 @@ export class UserProfileService {
           user_id: targetUserId,
           setting_key: settingKey,
           setting_value: settingValue
-        })
+        }, { onConflict: 'user_id,setting_key' })
 
       if (error) {
         throw error
       }
+
+      // 兼容缓存：分拆写入某一项后，清理与该用户相关的缓存键
+      const store = useSettingsStore.getState()
+      // 清理单项缓存（getUserSetting 缓存）
+      const singleKey = store.generateCacheKey('userSetting', `${targetUserId}_${settingKey}`)
+      store.clearGlobalCache(singleKey)
+      // 清理聚合偏好缓存（getUserPreferences 缓存）
+      const prefKey = store.generateCacheKey('userPreferences', targetUserId)
+      store.clearGlobalCache(prefKey)
+      // 使“完整设置”缓存失效（下次强制刷新）
+      try {
+        useSettingsStore.setState({ userSettingsCacheTimestamp: 0, userSettingsCache: null })
+      } catch {}
     } catch (error) {
       console.error('Failed to set user setting:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 批量设置用户设置（单请求 upsert），与 DB 唯一键对齐，避免并发冲突
+   */
+  static async setUserSettingsBulk(
+    settings: Array<{ key: string, value: any }>,
+    userId?: string
+  ): Promise<void> {
+    try {
+      const user = await useSettingsStore.getState().getCurrentUser();
+      const targetUserId = userId || user?.id
+      
+      if (!targetUserId) {
+        throw new Error('User not logged in')
+      }
+
+      const rows = settings.map(s => ({
+        user_id: targetUserId,
+        setting_key: s.key,
+        setting_value: s.value
+      }))
+
+      const { error } = await supabase
+        .from('user_settings')
+        .upsert(rows, { onConflict: 'user_id,setting_key' })
+
+      if (error) {
+        throw error
+      }
+
+      // 缓存清理：逐项清理单键与聚合键，并使全量缓存失效
+      const store = useSettingsStore.getState()
+      for (const s of settings) {
+        const singleKey = store.generateCacheKey('userSetting', `${targetUserId}_${s.key}`)
+        store.clearGlobalCache(singleKey)
+      }
+      const prefKey = store.generateCacheKey('userPreferences', targetUserId)
+      store.clearGlobalCache(prefKey)
+      try {
+        useSettingsStore.setState({ userSettingsCacheTimestamp: 0, userSettingsCache: null })
+      } catch {}
+    } catch (error) {
+      console.error('Failed to set user settings (bulk):', error)
       throw error
     }
   }
@@ -502,12 +559,10 @@ export class UserProfileService {
         return cached.promise
       }
 
-      // Create new fetch Promise
+      // Create new fetch Promise（新版实现：读取分拆后的多个键，兼容历史 `preferences` 聚合键）
       const fetchPromise = (async () => {
         try {
-          const preferences = await this.getUserSetting('preferences', userId)
-          
-          // Return default preferences if user hasn't set any
+          // 默认值（用于兜底与结构对齐）
           const defaultPreferences: UserPreferences = {
             theme: 'system',
             currency: 'CNY',
@@ -515,19 +570,77 @@ export class UserProfileService {
               email: true,
               push: true,
               renewal_reminders: true,
-              payment_confirmations: true
+              payment_confirmations: true,
             },
             privacy: {
               profile_visibility: 'private',
-              data_sharing: false
+              data_sharing: false,
+            },
+          }
+
+          // 统一从 user_settings 读取分拆后的键；同时包含历史的 `preferences` 以便兼容
+          const { data, error } = await supabase
+            .from('user_settings')
+            .select('setting_key, setting_value')
+            .eq('user_id', targetUserId)
+
+          if (error) throw error
+
+          // 将结果归并为偏好设置对象
+          let merged: UserPreferences = { ...defaultPreferences }
+
+          for (const row of data || []) {
+            const key = row.setting_key
+            let value: any = row.setting_value
+
+            // 兼容历史包裹结构：{ value: 'xxx' }
+            if (typeof value === 'object' && value !== null && 'value' in value) {
+              value = value.value
+            }
+
+            if (key === 'theme' && typeof value === 'string') {
+              merged.theme = value as UserPreferences['theme']
+              continue
+            }
+            if (key === 'currency' && typeof value === 'string') {
+              merged.currency = value
+              continue
+            }
+            if (key === 'notifications' && typeof value === 'object' && value !== null) {
+              merged.notifications = {
+                ...defaultPreferences.notifications,
+                ...value,
+              }
+              continue
+            }
+            if (key === 'privacy' && typeof value === 'object' && value !== null) {
+              merged.privacy = {
+                ...defaultPreferences.privacy,
+                ...value,
+              }
+              continue
+            }
+            // 兼容历史聚合键 `preferences`
+            if (key === 'preferences' && typeof value === 'object' && value !== null) {
+              // 局部合并，保留默认结构
+              const v = value as Partial<UserPreferences>
+              merged = {
+                ...merged,
+                ...v,
+                notifications: v.notifications
+                  ? { ...merged.notifications, ...v.notifications }
+                  : merged.notifications,
+                privacy: v.privacy
+                  ? { ...merged.privacy, ...v.privacy }
+                  : merged.privacy,
+              }
+              continue
             }
           }
 
-          const result = preferences ? { ...defaultPreferences, ...preferences } : defaultPreferences
-          
-          // Set cache
-          useSettingsStore.getState().setGlobalCache(cacheKey, result)
-          return result
+          // 设置缓存并返回
+          useSettingsStore.getState().setGlobalCache(cacheKey, merged)
+          return merged
         } finally {
           // Clear Promise reference after request completion
           useSettingsStore.getState().clearGlobalCachePromise(cacheKey)

@@ -9,30 +9,36 @@ import {
 } from "@/components/ui/card"
 import { formatCurrencyAmount } from "@/utils/currency"
 
+type CategoryItem = { category: string; label: string; amount: number }
+
 interface CategoryBreakdownProps {
-  data: Record<string, number>
+  // 兼容旧用法：传入 category → amount 的映射（将基于 store 的 categories 推断 label）
+  data?: Record<string, number>
+  // 新用法：直接传入带 label 的分类条目（推荐，避免额外请求 categories）
+  items?: CategoryItem[]
 }
 
-export function CategoryBreakdown({ data }: CategoryBreakdownProps) {
-  // Get categories from the store for labels
+export function CategoryBreakdown({ data, items }: CategoryBreakdownProps) {
+  // Get categories from the store for labels（作为旧用法的兜底）
   const { categories } = useSubscriptionStore()
   // Get user's preferred currency
   const { currency: userCurrency } = useSettingsStore()
-  
+
+  // 新用法优先：直接使用带 label 的 items
+  const normalized: CategoryItem[] = items && items.length > 0
+    ? [...items]
+    : Object.entries(data || {})
+        .map(([category, amount]) => {
+          const found = categories.find(c => c.value === category)
+          return { category, label: found?.label || category, amount }
+        })
+        .filter(x => x.amount > 0)
+
   // Calculate total
-  const total = Object.values(data).reduce((sum, value) => sum + value, 0)
-  
+  const total = normalized.reduce((sum, it) => sum + it.amount, 0)
+
   // Sort categories by amount (descending)
-  const sortedCategories = Object.entries(data)
-    .sort(([, a], [, b]) => b - a)
-    .filter(([, value]) => value > 0)
-    .map(([category]) => category)
-  
-  // Get appropriate label for a category
-  const getCategoryLabel = (categoryValue: string) => {
-    const category = categories.find(c => c.value === categoryValue)
-    return category?.label || categoryValue
-  }
+  const sorted = [...normalized].sort((a, b) => b.amount - a.amount)
   
   return (
     <Card className="min-h-[200px] flex flex-col">
@@ -41,7 +47,7 @@ export function CategoryBreakdown({ data }: CategoryBreakdownProps) {
         <CardDescription>Annual breakdown by category</CardDescription>
       </CardHeader>
       <CardContent className="flex-1 flex flex-col">
-        {sortedCategories.length === 0 ? (
+        {sorted.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center text-center">
             <p className="text-muted-foreground">
               No spending data available
@@ -49,16 +55,16 @@ export function CategoryBreakdown({ data }: CategoryBreakdownProps) {
           </div>
         ) : (
           <div className="space-y-4 flex-1">
-            {sortedCategories.map((category) => {
-              const value = data[category]
+            {sorted.map((item) => {
+              const value = item.amount
               const percentage = total > 0 ? (value / total) * 100 : 0
               
               return (
-                <div key={category} className="space-y-1">
+                <div key={item.category} className="space-y-1">
                   <div className="flex items-center justify-between text-sm">
-                    <span>{getCategoryLabel(category)}</span>
+                    <span>{item.category}</span>
                     <span className="font-medium">
-                      {formatCurrencyAmount(value, userCurrency)}
+                      {formatCurrencyAmount(item.amount, userCurrency)}
                     </span>
                   </div>
                   <div className="w-full h-2 bg-secondary overflow-hidden rounded-full">

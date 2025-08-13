@@ -16,6 +16,7 @@ import { Textarea } from '../components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { useToast } from '../hooks/use-toast';
 import { supabase } from '../lib/supabase';
+import { supabaseGateway } from '@/utils/supabase-gateway';
 import { getSystemPerformanceMetrics } from '../services/systemMonitorService';
 import { 
   Shield, 
@@ -164,7 +165,7 @@ export function AdminDashboardPage() {
   const loadSystemStats = async () => {
     try {
       // 改为调用带权限校验（super_admin）的 RPC，绕过 RLS 统计真实数据
-      const { data, error } = await supabase.rpc('get_system_stats');
+      const { data, error } = await supabaseGateway.rpc('get_system_stats');
       if (error) throw error;
       setStats({
         totalUsers: data?.totalUsers ?? 0,
@@ -255,7 +256,7 @@ export function AdminDashboardPage() {
     setIsTriggeringRenewal(true);
     try {
       // 优先尝试调用数据库函数（生产方案）
-      const { data: rpcData, error: rpcError } = await supabase.rpc('process_due_auto_renewals', { p_limit: 200 });
+      const { data: rpcData, error: rpcError } = await supabaseGateway.rpc('process_due_auto_renewals', { p_limit: 200 });
       if (!rpcError) {
         toast({
           title: '自动续费任务已触发（DB）',
@@ -271,7 +272,7 @@ export function AdminDashboardPage() {
       }
 
       // 回退：调用 Edge Function
-      const { data: fnData, error: fnError } = await supabase.functions.invoke('auto-renew-subscriptions');
+      const { data: fnData, error: fnError } = await supabaseGateway.invokeFunction('auto-renew-subscriptions');
       if (fnError) throw fnError;
 
       toast({
