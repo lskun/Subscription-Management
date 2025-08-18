@@ -20,9 +20,10 @@
 5. 汇率管理 (exchange_rates, exchange_rate_history)
 6. 通知系统 (user_notifications, notification_templates)
 7. 邮件系统 (email_logs, email_templates, email_queue)
-8. 管理员系统 (admin_users, admin_roles, admin_sessions)
+8. 管理员系统 (admin_users, admin_roles, admin_sessions, admin_operation_logs)
 9. 系统监控 (system_health, system_stats, system_logs)
 10. 用户设置 (user_settings, user_email_preferences)
+11. 调度任务系统 (scheduler_jobs, scheduler_job_runs)
 
 =======================================================
 已安装的扩展
@@ -35,6 +36,7 @@ CREATE EXTENSION IF NOT EXISTS "pg_stat_statements"; -- SQL 统计
 CREATE EXTENSION IF NOT EXISTS "pg_net";           -- HTTP 客户端
 CREATE EXTENSION IF NOT EXISTS "pg_graphql";       -- GraphQL 支持
 CREATE EXTENSION IF NOT EXISTS "supabase_vault";   -- Supabase Vault
+CREATE EXTENSION IF NOT EXISTS "pg_cron";          -- 定时任务调度
 
 =======================================================
 认证相关表 (auth schema)
@@ -512,6 +514,37 @@ CREATE TABLE IF NOT EXISTS system_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- scheduler_jobs - 调度任务表
+CREATE TABLE IF NOT EXISTS scheduler_jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_name TEXT NOT NULL UNIQUE,
+    job_type TEXT NOT NULL CHECK (job_type IN ('edge_function', 'rpc', 'http_post')),
+    cron_spec TEXT NOT NULL,
+    timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+    is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    pg_cron_job_id INTEGER,
+    payload JSONB,
+    headers JSONB,
+    last_run_at TIMESTAMPTZ,
+    next_run_at TIMESTAMPTZ,
+    last_status TEXT CHECK (last_status IN ('success', 'failed', 'partial') OR last_status IS NULL),
+    failed_attempts INTEGER NOT NULL DEFAULT 0,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- scheduler_job_runs - 调度任务运行记录表
+CREATE TABLE IF NOT EXISTS scheduler_job_runs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id UUID NOT NULL REFERENCES scheduler_jobs(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK (status IN ('success', 'failed', 'partial')),
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    result JSONB,
+    error_message TEXT
+);
+
 /*
 =======================================================
 索引定义
@@ -522,35 +555,76 @@ CREATE TABLE IF NOT EXISTS system_logs (
 CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON user_profiles(id);
 CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON user_profiles(email);
 CREATE INDEX IF NOT EXISTS idx_user_profiles_last_login ON user_profiles(last_login_time);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_is_blocked ON user_profiles(is_blocked);
 CREATE INDEX IF NOT EXISTS idx_user_settings_user_id ON user_settings(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_settings_key ON user_settings(setting_key);
+CREATE INDEX IF NOT EXISTS idx_user_settings_user_id_key ON user_settings(user_id, setting_key);
 
 -- 订阅相关索引
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_next_billing ON subscriptions(next_billing_date);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id_status ON subscriptions(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_category_id ON subscriptions(category_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_payment_method_id ON subscriptions(payment_method_id);
 CREATE INDEX IF NOT EXISTS idx_payment_history_user_id ON payment_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_payment_history_subscription_id ON payment_history(subscription_id);
 CREATE INDEX IF NOT EXISTS idx_payment_history_date ON payment_history(payment_date);
+CREATE INDEX IF NOT EXISTS idx_payment_history_status ON payment_history(status);
+CREATE INDEX IF NOT EXISTS idx_payment_history_user_date ON payment_history(user_id, payment_date);
+CREATE INDEX IF NOT EXISTS idx_payment_history_user_status_date ON payment_history(user_id, status, payment_date);
+
+-- 唯一约束：防止同一计费周期内重复成功支付
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_successful_payment_per_billing_period 
+ON payment_history(subscription_id, billing_period_start, billing_period_end) 
+WHERE status = 'success';
 
 -- 汇率相关索引
 CREATE INDEX IF NOT EXISTS idx_exchange_rates_currencies ON exchange_rates(from_currency, to_currency);
 CREATE INDEX IF NOT EXISTS idx_exchange_rates_date ON exchange_rates(date);
+CREATE INDEX IF NOT EXISTS idx_exchange_rates_composite ON exchange_rates(from_currency, to_currency, date);
 CREATE INDEX IF NOT EXISTS idx_exchange_rate_history_currencies ON exchange_rate_history(from_currency, to_currency);
 CREATE INDEX IF NOT EXISTS idx_exchange_rate_history_date ON exchange_rate_history(date);
+CREATE INDEX IF NOT EXISTS idx_exchange_rate_history_created_at ON exchange_rate_history(created_at);
+CREATE INDEX IF NOT EXISTS idx_erh_pair_date_desc ON exchange_rate_history(from_currency, to_currency, date DESC);
+CREATE INDEX IF NOT EXISTS idx_exchange_rate_update_logs_status ON exchange_rate_update_logs(status);
+CREATE INDEX IF NOT EXISTS idx_exchange_rate_update_logs_created_at ON exchange_rate_update_logs(created_at);
+
+-- 分类和支付方式索引
+CREATE INDEX IF NOT EXISTS idx_categories_user_id ON categories(user_id);
+CREATE INDEX IF NOT EXISTS idx_categories_is_default ON categories(is_default);
+CREATE INDEX IF NOT EXISTS idx_categories_user_id_default ON categories(user_id, is_default);
+CREATE INDEX IF NOT EXISTS idx_payment_methods_user_id ON payment_methods(user_id);
+CREATE INDEX IF NOT EXISTS idx_payment_methods_is_default ON payment_methods(is_default);
+CREATE INDEX IF NOT EXISTS idx_payment_methods_user_id_default ON payment_methods(user_id, is_default);
 
 -- 通知相关索引
 CREATE INDEX IF NOT EXISTS idx_user_notifications_user_id ON user_notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_notifications_type ON user_notifications(type);
 CREATE INDEX IF NOT EXISTS idx_user_notifications_created_at ON user_notifications(created_at);
 CREATE INDEX IF NOT EXISTS idx_user_notifications_is_read ON user_notifications(is_read);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_is_archived ON user_notifications(is_archived);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_priority ON user_notifications(priority);
+CREATE INDEX IF NOT EXISTS idx_user_notifications_expires_at ON user_notifications(expires_at);
 
 -- 邮件相关索引
 CREATE INDEX IF NOT EXISTS idx_email_logs_user_id ON email_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_email_logs_type ON email_logs(email_type);
 CREATE INDEX IF NOT EXISTS idx_email_logs_status ON email_logs(status);
+CREATE INDEX IF NOT EXISTS idx_email_logs_sent_at ON email_logs(sent_at);
+CREATE INDEX IF NOT EXISTS idx_email_queue_user_id ON email_queue(user_id);
 CREATE INDEX IF NOT EXISTS idx_email_queue_status ON email_queue(status);
 CREATE INDEX IF NOT EXISTS idx_email_queue_scheduled_at ON email_queue(scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_email_queue_priority ON email_queue(priority);
+CREATE INDEX IF NOT EXISTS idx_email_templates_key ON email_templates(template_key);
+CREATE INDEX IF NOT EXISTS idx_email_templates_active ON email_templates(is_active);
+CREATE INDEX IF NOT EXISTS idx_notification_templates_key ON notification_templates(template_key);
+CREATE INDEX IF NOT EXISTS idx_notification_templates_type ON notification_templates(type);
+CREATE INDEX IF NOT EXISTS idx_notification_templates_active ON notification_templates(is_active);
+CREATE INDEX IF NOT EXISTS idx_user_email_preferences_user_id ON user_email_preferences(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_email_preferences_type ON user_email_preferences(email_type);
+CREATE INDEX IF NOT EXISTS idx_user_notification_preferences_user_id ON user_notification_preferences(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_notification_preferences_type ON user_notification_preferences(notification_type);
 
 -- 管理员相关索引
 CREATE INDEX IF NOT EXISTS idx_admin_users_user_id ON admin_users(user_id);
@@ -561,8 +635,18 @@ CREATE INDEX IF NOT EXISTS idx_admin_operation_logs_created_at ON admin_operatio
 -- 系统监控相关索引
 CREATE INDEX IF NOT EXISTS idx_system_health_service_name ON system_health(service_name);
 CREATE INDEX IF NOT EXISTS idx_system_health_status ON system_health(status);
+CREATE INDEX IF NOT EXISTS idx_system_health_service_checked ON system_health(service_name, checked_at DESC);
 CREATE INDEX IF NOT EXISTS idx_system_stats_type ON system_stats(stat_type);
 CREATE INDEX IF NOT EXISTS idx_system_stats_recorded_at ON system_stats(recorded_at);
+CREATE INDEX IF NOT EXISTS idx_system_stats_type_recorded ON system_stats(stat_type, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_logs_type ON system_logs(log_type);
+CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at);
+
+-- 调度任务相关索引
+CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_name ON scheduler_jobs(job_name);
+CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_enabled ON scheduler_jobs(is_enabled);
+CREATE INDEX IF NOT EXISTS idx_scheduler_job_runs_job_id ON scheduler_job_runs(job_id);
+CREATE INDEX IF NOT EXISTS idx_scheduler_job_runs_started_at ON scheduler_job_runs(started_at DESC);
 
 /*
 =======================================================
@@ -628,37 +712,90 @@ CREATE TRIGGER update_email_queue_updated_at
     BEFORE UPDATE ON email_queue
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_scheduler_jobs_updated_at
+    BEFORE UPDATE ON scheduler_jobs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- 用户初始化函数
-CREATE OR REPLACE FUNCTION initialize_user_data()
-RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION initialize_user_data(input_user_id UUID)
+RETURNS JSON AS $$
+DECLARE
+    result JSON;
 BEGIN
     -- 创建用户资料
     INSERT INTO public.user_profiles (id, display_name, email)
-    VALUES (
-        NEW.id,
-        COALESCE(NEW.raw_user_meta_data->>'display_name', split_part(NEW.email, '@', 1)),
-        NEW.email
-    );
+    SELECT 
+        input_user_id,
+        COALESCE(u.raw_user_meta_data->>'display_name', split_part(u.email, '@', 1)),
+        u.email
+    FROM auth.users u
+    WHERE u.id = input_user_id
+    ON CONFLICT (id) DO NOTHING;
     
     -- 创建默认分类
     INSERT INTO public.categories (user_id, value, label, is_default)
     VALUES 
-        (NEW.id, 'entertainment', '娱乐', true),
-        (NEW.id, 'productivity', '生产力', true),
-        (NEW.id, 'education', '教育', true),
-        (NEW.id, 'business', '商务', true),
-        (NEW.id, 'other', '其他', true);
+        (input_user_id, 'entertainment', '娱乐', true),
+        (input_user_id, 'productivity', '生产力', true),
+        (input_user_id, 'education', '教育', true),
+        (input_user_id, 'business', '商务', true),
+        (input_user_id, 'other', '其他', true)
+    ON CONFLICT (user_id, value) DO NOTHING;
     
     -- 创建默认支付方式
     INSERT INTO public.payment_methods (user_id, value, label, is_default)
     VALUES 
-        (NEW.id, 'credit_card', '信用卡', true),
-        (NEW.id, 'debit_card', '借记卡', false),
-        (NEW.id, 'paypal', 'PayPal', false),
-        (NEW.id, 'alipay', '支付宝', false),
-        (NEW.id, 'wechat_pay', '微信支付', false);
+        (input_user_id, 'credit_card', '信用卡', true),
+        (input_user_id, 'debit_card', '借记卡', false),
+        (input_user_id, 'paypal', 'PayPal', false),
+        (input_user_id, 'alipay', '支付宝', false),
+        (input_user_id, 'wechat_pay', '微信支付', false)
+    ON CONFLICT (user_id, value) DO NOTHING;
     
     -- 创建默认邮件偏好设置
+    INSERT INTO public.user_email_preferences (user_id, email_type, enabled, frequency)
+    VALUES 
+        (input_user_id, 'welcome', true, 'immediate'),
+        (input_user_id, 'subscription_expiry', true, 'immediate'),
+        (input_user_id, 'payment_failed', true, 'immediate'),
+        (input_user_id, 'payment_success', true, 'immediate'),
+        (input_user_id, 'quota_warning', true, 'immediate'),
+        (input_user_id, 'security_alert', true, 'immediate'),
+        (input_user_id, 'system_update', false, 'weekly'),
+        (input_user_id, 'password_reset', true, 'immediate')
+    ON CONFLICT (user_id, email_type) DO NOTHING;
+    
+    -- 创建默认通知偏好设置
+    INSERT INTO public.user_notification_preferences (user_id, notification_type, enabled, push_enabled, email_enabled, in_app_enabled)
+    VALUES 
+        (input_user_id, 'subscription', true, true, true, true),
+        (input_user_id, 'payment', true, true, true, true),
+        (input_user_id, 'system', true, false, false, true),
+        (input_user_id, 'security', true, true, true, true)
+    ON CONFLICT (user_id, notification_type) DO NOTHING;
+    
+    SELECT json_build_object(
+        'success', true,
+        'message', 'User data initialized successfully',
+        'user_id', input_user_id
+    ) INTO result;
+    
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 当前用户初始化函数
+CREATE OR REPLACE FUNCTION initialize_current_user_data()
+RETURNS JSON AS $$
+BEGIN
+    RETURN initialize_user_data(auth.uid());
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 创建默认邮件偏好设置触发器函数
+CREATE OR REPLACE FUNCTION create_default_email_preferences()
+RETURNS TRIGGER AS $$
+BEGIN
     INSERT INTO public.user_email_preferences (user_id, email_type, enabled, frequency)
     VALUES 
         (NEW.id, 'welcome', true, 'immediate'),
@@ -668,27 +805,40 @@ BEGIN
         (NEW.id, 'quota_warning', true, 'immediate'),
         (NEW.id, 'security_alert', true, 'immediate'),
         (NEW.id, 'system_update', false, 'weekly'),
-        (NEW.id, 'password_reset', true, 'immediate');
+        (NEW.id, 'password_reset', true, 'immediate')
+    ON CONFLICT (user_id, email_type) DO NOTHING;
     
-    -- 创建默认通知偏好设置
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 创建默认通知偏好设置触发器函数
+CREATE OR REPLACE FUNCTION create_default_notification_preferences()
+RETURNS TRIGGER AS $$
+BEGIN
     INSERT INTO public.user_notification_preferences (user_id, notification_type, enabled, push_enabled, email_enabled, in_app_enabled)
     VALUES 
         (NEW.id, 'subscription', true, true, true, true),
         (NEW.id, 'payment', true, true, true, true),
         (NEW.id, 'system', true, false, false, true),
-        (NEW.id, 'security', true, true, true, true);
+        (NEW.id, 'security', true, true, true, true)
+    ON CONFLICT (user_id, notification_type) DO NOTHING;
     
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 用户注册触发器
-CREATE TRIGGER on_auth_user_created
+CREATE TRIGGER create_user_email_preferences_trigger
     AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE FUNCTION initialize_user_data();
+    FOR EACH ROW EXECUTE FUNCTION create_default_email_preferences();
+
+CREATE TRIGGER create_user_notification_preferences_trigger
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION create_default_notification_preferences();
 
 -- 汇率历史记录函数
-CREATE OR REPLACE FUNCTION archive_exchange_rate()
+CREATE OR REPLACE FUNCTION log_exchange_rate_changes()
 RETURNS TRIGGER AS $$
 BEGIN
     -- 当汇率更新时，将旧值存入历史表
@@ -701,10 +851,23 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- 汇率时间戳更新函数
+CREATE OR REPLACE FUNCTION update_exchange_rate_timestamp()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- 汇率历史触发器
-CREATE TRIGGER archive_exchange_rate_trigger
+CREATE TRIGGER trigger_log_exchange_rate_changes
     BEFORE UPDATE ON exchange_rates
-    FOR EACH ROW EXECUTE FUNCTION archive_exchange_rate();
+    FOR EACH ROW EXECUTE FUNCTION log_exchange_rate_changes();
+
+CREATE TRIGGER trigger_update_exchange_rate_timestamp
+    BEFORE UPDATE ON exchange_rates
+    FOR EACH ROW EXECUTE FUNCTION update_exchange_rate_timestamp();
 
 /*
 =======================================================
@@ -883,6 +1046,43 @@ WHERE checked_at >= NOW() - INTERVAL '1 hour'
 GROUP BY service_name, status
 ORDER BY service_name;
 
+-- 邮件统计视图
+CREATE OR REPLACE VIEW email_statistics AS
+SELECT 
+    user_id,
+    email_type,
+    status,
+    COUNT(*) as count,
+    DATE_TRUNC('day', sent_at) as date
+FROM email_logs
+GROUP BY user_id, email_type, status, DATE_TRUNC('day', sent_at);
+
+-- 用户邮件统计视图
+CREATE OR REPLACE VIEW user_email_statistics AS
+SELECT 
+    user_id,
+    COUNT(*) as total_emails,
+    COUNT(CASE WHEN status = 'sent' THEN 1 END) as sent_emails,
+    COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_emails,
+    COUNT(CASE WHEN status = 'delivered' THEN 1 END) as delivered_emails,
+    COUNT(CASE WHEN status = 'bounced' THEN 1 END) as bounced_emails,
+    MAX(sent_at) as last_email_sent
+FROM email_logs
+GROUP BY user_id;
+
+-- 用户通知统计视图
+CREATE OR REPLACE VIEW user_notification_statistics AS
+SELECT 
+    user_id,
+    COUNT(*) as total_notifications,
+    COUNT(CASE WHEN is_read = false THEN 1 END) as unread_notifications,
+    COUNT(CASE WHEN is_archived = false THEN 1 END) as active_notifications,
+    COUNT(CASE WHEN type = 'error' OR priority = 'urgent' THEN 1 END) as urgent_notifications,
+    MAX(created_at) as last_notification_at
+FROM user_notifications
+WHERE expires_at IS NULL OR expires_at > NOW()
+GROUP BY user_id;
+
 /*
 =======================================================
 存储过程和函数
@@ -951,6 +1151,617 @@ BEGIN
     ON CONFLICT (stat_type) DO UPDATE SET 
         stat_value = EXCLUDED.stat_value,
         recorded_at = NOW();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 管理员权限检查函数
+CREATE OR REPLACE FUNCTION is_admin_user(user_uuid UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM admin_users au 
+        WHERE au.user_id = user_uuid AND au.is_active = true
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION has_admin_permission(user_uuid UUID, permission_name TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 
+        FROM admin_users au
+        JOIN admin_roles ar ON au.role_id = ar.id
+        WHERE au.user_id = user_uuid 
+        AND au.is_active = true
+        AND ar.is_active = true
+        AND (ar.permissions->permission_name)::boolean = true
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 管理员权限检查函数
+CREATE OR REPLACE FUNCTION _ensure_is_admin()
+RETURNS VOID AS $$
+BEGIN
+    IF NOT is_admin_user(auth.uid()) THEN
+        RAISE EXCEPTION 'Access denied: Admin privileges required';
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION _ensure_can_manage_system()
+RETURNS VOID AS $$
+BEGIN
+    IF NOT has_admin_permission(auth.uid(), 'manage_system') THEN
+        RAISE EXCEPTION 'Access denied: System management privileges required';
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 获取用户统计信息
+CREATE OR REPLACE FUNCTION get_user_stats()
+RETURNS JSONB AS $$
+DECLARE
+    result JSONB;
+BEGIN
+    SELECT json_build_object(
+        'total_users', (SELECT COUNT(*) FROM auth.users),
+        'active_users', (SELECT COUNT(*) FROM user_profiles WHERE last_login_time >= NOW() - INTERVAL '30 days'),
+        'blocked_users', (SELECT COUNT(*) FROM user_profiles WHERE is_blocked = true),
+        'total_subscriptions', (SELECT COUNT(*) FROM subscriptions),
+        'active_subscriptions', (SELECT COUNT(*) FROM subscriptions WHERE status = 'active'),
+        'total_payments', (SELECT COUNT(*) FROM payment_history),
+        'successful_payments', (SELECT COUNT(*) FROM payment_history WHERE status = 'success')
+    ) INTO result;
+    
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 获取系统统计信息
+CREATE OR REPLACE FUNCTION get_system_stats()
+RETURNS JSONB AS $$
+DECLARE
+    result JSONB;
+BEGIN
+    SELECT json_build_object(
+        'database_size', pg_size_pretty(pg_database_size(current_database())),
+        'total_tables', (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'),
+        'total_functions', (SELECT COUNT(*) FROM information_schema.routines WHERE routine_schema = 'public'),
+        'uptime', EXTRACT(EPOCH FROM (NOW() - pg_postmaster_start_time()))::INTEGER
+    ) INTO result;
+    
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 获取汇率统计信息
+CREATE OR REPLACE FUNCTION get_exchange_rate_stats()
+RETURNS JSON AS $$
+DECLARE
+    result JSON;
+BEGIN
+    SELECT json_build_object(
+        'total_rates', (SELECT COUNT(*) FROM exchange_rates),
+        'last_update', (SELECT MAX(updated_at) FROM exchange_rates),
+        'supported_currencies', (
+            SELECT json_agg(DISTINCT from_currency) 
+            FROM exchange_rates 
+            WHERE from_currency != 'CNY'
+        ),
+        'update_frequency', '每小时更新'
+    ) INTO result;
+    
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 获取最新汇率
+CREATE OR REPLACE FUNCTION get_latest_exchange_rate(p_from_currency TEXT, p_to_currency TEXT)
+RETURNS NUMERIC AS $$
+DECLARE
+    rate_value NUMERIC;
+BEGIN
+    SELECT rate INTO rate_value
+    FROM exchange_rates
+    WHERE from_currency = p_from_currency 
+    AND to_currency = p_to_currency
+    ORDER BY date DESC, updated_at DESC
+    LIMIT 1;
+    
+    RETURN COALESCE(rate_value, 1.0);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 用户列表函数
+CREATE OR REPLACE FUNCTION list_users(
+    p_page INTEGER DEFAULT 1,
+    p_limit INTEGER DEFAULT 20,
+    p_search TEXT DEFAULT NULL,
+    p_status TEXT DEFAULT NULL
+)
+RETURNS JSONB AS $$
+DECLARE
+    result JSONB;
+    offset_val INTEGER;
+BEGIN
+    offset_val := (p_page - 1) * p_limit;
+    
+    WITH filtered_users AS (
+        SELECT 
+            u.id,
+            u.email,
+            up.display_name,
+            up.last_login_time,
+            up.is_blocked,
+            up.created_at,
+            COUNT(s.id) as subscription_count
+        FROM auth.users u
+        LEFT JOIN user_profiles up ON u.id = up.id
+        LEFT JOIN subscriptions s ON u.id = s.user_id AND s.status = 'active'
+        WHERE 
+            (p_search IS NULL OR 
+             u.email ILIKE '%' || p_search || '%' OR 
+             up.display_name ILIKE '%' || p_search || '%')
+        AND (p_status IS NULL OR 
+             (p_status = 'active' AND up.is_blocked = false) OR
+             (p_status = 'blocked' AND up.is_blocked = true))
+        GROUP BY u.id, u.email, up.display_name, up.last_login_time, up.is_blocked, up.created_at
+        ORDER BY up.created_at DESC
+        LIMIT p_limit OFFSET offset_val
+    )
+    SELECT json_build_object(
+        'users', json_agg(row_to_json(filtered_users)),
+        'total_count', (
+            SELECT COUNT(*)
+            FROM auth.users u
+            LEFT JOIN user_profiles up ON u.id = up.id
+            WHERE 
+                (p_search IS NULL OR 
+                 u.email ILIKE '%' || p_search || '%' OR 
+                 up.display_name ILIKE '%' || p_search || '%')
+            AND (p_status IS NULL OR 
+                 (p_status = 'active' AND up.is_blocked = false) OR
+                 (p_status = 'blocked' AND up.is_blocked = true))
+        ),
+        'page', p_page,
+        'limit', p_limit
+    ) INTO result
+    FROM filtered_users;
+    
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 调度器相关函数
+CREATE OR REPLACE FUNCTION scheduler_start(
+    p_job_name TEXT,
+    p_cron TEXT,
+    p_timezone TEXT,
+    p_payload JSONB DEFAULT NULL
+)
+RETURNS VOID AS $$
+BEGIN
+    -- 更新或插入调度任务
+    INSERT INTO scheduler_jobs (job_name, job_type, cron_spec, timezone, is_enabled, payload)
+    VALUES (p_job_name, 'edge_function', p_cron, p_timezone, true, p_payload)
+    ON CONFLICT (job_name) DO UPDATE SET
+        cron_spec = EXCLUDED.cron_spec,
+        timezone = EXCLUDED.timezone,
+        is_enabled = true,
+        payload = EXCLUDED.payload,
+        updated_at = NOW();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION scheduler_stop(p_job_name TEXT)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE scheduler_jobs 
+    SET is_enabled = false, updated_at = NOW()
+    WHERE job_name = p_job_name;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION scheduler_update(
+    p_job_name TEXT,
+    p_cron TEXT,
+    p_timezone TEXT,
+    p_payload JSONB DEFAULT NULL
+)
+RETURNS VOID AS $$
+BEGIN
+    UPDATE scheduler_jobs 
+    SET 
+        cron_spec = p_cron,
+        timezone = p_timezone,
+        payload = p_payload,
+        updated_at = NOW()
+    WHERE job_name = p_job_name;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION scheduler_status(p_job_name TEXT)
+RETURNS TABLE(
+    job_name TEXT,
+    job_type TEXT,
+    cron_spec TEXT,
+    timezone TEXT,
+    is_enabled BOOLEAN,
+    pg_cron_job_id INTEGER,
+    last_run_at TIMESTAMPTZ,
+    next_run_at TIMESTAMPTZ,
+    last_status TEXT,
+    failed_attempts INTEGER
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        sj.job_name,
+        sj.job_type,
+        sj.cron_spec,
+        sj.timezone,
+        sj.is_enabled,
+        sj.pg_cron_job_id,
+        sj.last_run_at,
+        sj.next_run_at,
+        sj.last_status,
+        sj.failed_attempts
+    FROM scheduler_jobs sj
+    WHERE sj.job_name = p_job_name;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION scheduler_status_public(p_job_name TEXT)
+RETURNS TABLE(
+    job_name TEXT,
+    is_enabled BOOLEAN,
+    cron_spec TEXT,
+    timezone TEXT,
+    last_run_at TIMESTAMPTZ,
+    next_run_at TIMESTAMPTZ,
+    last_status TEXT,
+    failed_attempts INTEGER
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        sj.job_name,
+        sj.is_enabled,
+        sj.cron_spec,
+        sj.timezone,
+        sj.last_run_at,
+        sj.next_run_at,
+        sj.last_status,
+        sj.failed_attempts
+    FROM scheduler_jobs sj
+    WHERE sj.job_name = p_job_name;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION scheduler_invoke_edge_function(p_job_name TEXT)
+RETURNS VOID AS $$
+BEGIN
+    -- 这个函数用于手动触发边缘函数
+    -- 实际实现需要调用相应的边缘函数
+    INSERT INTO scheduler_job_runs (job_id, status, started_at, completed_at)
+    SELECT 
+        id, 
+        'success', 
+        NOW(), 
+        NOW()
+    FROM scheduler_jobs 
+    WHERE job_name = p_job_name;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 获取管理的订阅信息
+CREATE OR REPLACE FUNCTION get_managed_subscriptions(
+    p_user_id UUID,
+    p_target_currency TEXT DEFAULT 'CNY',
+    p_filters JSONB DEFAULT '{}',
+    p_sorting JSONB DEFAULT '{"field": "nextBillingDate", "order": "asc"}',
+    p_include_categories BOOLEAN DEFAULT true,
+    p_include_payment_methods BOOLEAN DEFAULT true
+)
+RETURNS JSONB AS $$
+DECLARE
+    result JSONB;
+BEGIN
+    WITH subscription_data AS (
+        SELECT 
+            s.*,
+            c.label as category_label,
+            pm.label as payment_method_label,
+            CASE 
+                WHEN s.currency != p_target_currency THEN
+                    s.amount * get_latest_exchange_rate(s.currency, p_target_currency)
+                ELSE s.amount
+            END as converted_amount
+        FROM subscriptions s
+        LEFT JOIN categories c ON s.category_id = c.id
+        LEFT JOIN payment_methods pm ON s.payment_method_id = pm.id
+        WHERE s.user_id = p_user_id
+        AND (
+            p_filters = '{}' OR
+            (p_filters->>'status' IS NULL OR s.status = p_filters->>'status') AND
+            (p_filters->>'category' IS NULL OR c.value = p_filters->>'category')
+        )
+    )
+    SELECT json_build_object(
+        'subscriptions', json_agg(subscription_data ORDER BY 
+            CASE WHEN p_sorting->>'field' = 'nextBillingDate' AND p_sorting->>'order' = 'asc' THEN next_billing_date END ASC,
+            CASE WHEN p_sorting->>'field' = 'nextBillingDate' AND p_sorting->>'order' = 'desc' THEN next_billing_date END DESC,
+            CASE WHEN p_sorting->>'field' = 'amount' AND p_sorting->>'order' = 'asc' THEN converted_amount END ASC,
+            CASE WHEN p_sorting->>'field' = 'amount' AND p_sorting->>'order' = 'desc' THEN converted_amount END DESC,
+            created_at DESC
+        ),
+        'categories', CASE WHEN p_include_categories THEN (
+            SELECT json_agg(json_build_object('value', value, 'label', label))
+            FROM categories WHERE user_id = p_user_id OR is_default = true
+        ) ELSE '[]'::json END,
+        'payment_methods', CASE WHEN p_include_payment_methods THEN (
+            SELECT json_agg(json_build_object('value', value, 'label', label))
+            FROM payment_methods WHERE user_id = p_user_id OR is_default = true
+        ) ELSE '[]'::json END,
+        'target_currency', p_target_currency
+    ) INTO result
+    FROM subscription_data;
+    
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 获取仪表板分析数据
+CREATE OR REPLACE FUNCTION get_dashboard_analytics(
+    target_currency TEXT DEFAULT 'CNY',
+    upcoming_days INTEGER DEFAULT 7,
+    recent_days INTEGER DEFAULT 7
+)
+RETURNS JSONB AS $$
+DECLARE
+    result JSONB;
+    user_uuid UUID;
+BEGIN
+    user_uuid := auth.uid();
+    
+    WITH analytics_data AS (
+        SELECT 
+            -- 总订阅数
+            COUNT(*) as total_subscriptions,
+            -- 活跃订阅数
+            COUNT(*) FILTER (WHERE status = 'active') as active_subscriptions,
+            -- 月度总费用
+            SUM(CASE 
+                WHEN billing_cycle = 'monthly' AND status = 'active' THEN
+                    CASE WHEN currency != target_currency THEN
+                        amount * get_latest_exchange_rate(currency, target_currency)
+                    ELSE amount END
+                ELSE 0
+            END) as monthly_cost,
+            -- 年度总费用
+            SUM(CASE 
+                WHEN billing_cycle = 'yearly' AND status = 'active' THEN
+                    CASE WHEN currency != target_currency THEN
+                        amount * get_latest_exchange_rate(currency, target_currency)
+                    ELSE amount END
+                ELSE 0
+            END) as yearly_cost,
+            -- 即将到期的订阅
+            COUNT(*) FILTER (
+                WHERE status = 'active' 
+                AND next_billing_date BETWEEN CURRENT_DATE AND CURRENT_DATE + upcoming_days
+            ) as upcoming_renewals,
+            -- 最近支付
+            (SELECT COUNT(*) FROM payment_history ph 
+             WHERE ph.user_id = user_uuid 
+             AND ph.payment_date >= CURRENT_DATE - recent_days
+             AND ph.status = 'success'
+            ) as recent_payments
+        FROM subscriptions 
+        WHERE user_id = user_uuid
+    ),
+    category_breakdown AS (
+        SELECT json_agg(
+            json_build_object(
+                'category', c.label,
+                'count', category_counts.count,
+                'total_amount', category_counts.total_amount
+            )
+        ) as categories
+        FROM (
+            SELECT 
+                s.category_id,
+                COUNT(*) as count,
+                SUM(CASE 
+                    WHEN s.currency != target_currency THEN
+                        s.amount * get_latest_exchange_rate(s.currency, target_currency)
+                    ELSE s.amount
+                END) as total_amount
+            FROM subscriptions s
+            WHERE s.user_id = user_uuid AND s.status = 'active'
+            GROUP BY s.category_id
+        ) category_counts
+        JOIN categories c ON category_counts.category_id = c.id
+    ),
+    upcoming_renewals AS (
+        SELECT json_agg(
+            json_build_object(
+                'id', s.id,
+                'name', s.name,
+                'amount', CASE 
+                    WHEN s.currency != target_currency THEN
+                        s.amount * get_latest_exchange_rate(s.currency, target_currency)
+                    ELSE s.amount
+                END,
+                'currency', target_currency,
+                'next_billing_date', s.next_billing_date,
+                'days_until_renewal', s.next_billing_date - CURRENT_DATE
+            )
+        ) as renewals
+        FROM subscriptions s
+        WHERE s.user_id = user_uuid 
+        AND s.status = 'active'
+        AND s.next_billing_date BETWEEN CURRENT_DATE AND CURRENT_DATE + upcoming_days
+        ORDER BY s.next_billing_date
+    ),
+    recent_payments AS (
+        SELECT json_agg(
+            json_build_object(
+                'id', ph.id,
+                'subscription_name', s.name,
+                'amount', CASE 
+                    WHEN ph.currency != target_currency THEN
+                        ph.amount_paid * get_latest_exchange_rate(ph.currency, target_currency)
+                    ELSE ph.amount_paid
+                END,
+                'currency', target_currency,
+                'payment_date', ph.payment_date,
+                'status', ph.status
+            )
+        ) as payments
+        FROM payment_history ph
+        JOIN subscriptions s ON ph.subscription_id = s.id
+        WHERE ph.user_id = user_uuid 
+        AND ph.payment_date >= CURRENT_DATE - recent_days
+        ORDER BY ph.payment_date DESC
+        LIMIT 10
+    )
+    SELECT json_build_object(
+        'summary', json_build_object(
+            'total_subscriptions', ad.total_subscriptions,
+            'active_subscriptions', ad.active_subscriptions,
+            'monthly_cost', ad.monthly_cost,
+            'yearly_cost', ad.yearly_cost,
+            'upcoming_renewals', ad.upcoming_renewals,
+            'recent_payments', ad.recent_payments,
+            'target_currency', target_currency
+        ),
+        'category_breakdown', COALESCE(cb.categories, '[]'::json),
+        'upcoming_renewals', COALESCE(ur.renewals, '[]'::json),
+        'recent_payments', COALESCE(rp.payments, '[]'::json)
+    ) INTO result
+    FROM analytics_data ad
+    CROSS JOIN category_breakdown cb
+    CROSS JOIN upcoming_renewals ur
+    CROSS JOIN recent_payments rp;
+    
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 处理订阅续费
+CREATE OR REPLACE FUNCTION process_subscription_renewal(
+    p_subscription_id UUID,
+    p_user_id UUID
+)
+RETURNS JSONB AS $$
+DECLARE
+    subscription_record RECORD;
+    next_billing DATE;
+    result JSONB;
+BEGIN
+    -- 获取订阅信息
+    SELECT * INTO subscription_record
+    FROM subscriptions 
+    WHERE id = p_subscription_id AND user_id = p_user_id AND status = 'active';
+    
+    IF NOT FOUND THEN
+        RETURN json_build_object(
+            'success', false,
+            'error', 'Subscription not found or not active'
+        );
+    END IF;
+    
+    -- 计算下次计费日期
+    CASE subscription_record.billing_cycle
+        WHEN 'monthly' THEN
+            next_billing := subscription_record.next_billing_date + INTERVAL '1 month';
+        WHEN 'quarterly' THEN
+            next_billing := subscription_record.next_billing_date + INTERVAL '3 months';
+        WHEN 'yearly' THEN
+            next_billing := subscription_record.next_billing_date + INTERVAL '1 year';
+        ELSE
+            next_billing := subscription_record.next_billing_date + INTERVAL '1 month';
+    END CASE;
+    
+    -- 更新订阅的下次计费日期
+    UPDATE subscriptions 
+    SET 
+        next_billing_date = next_billing,
+        last_billing_date = subscription_record.next_billing_date,
+        updated_at = NOW()
+    WHERE id = p_subscription_id;
+    
+    -- 创建支付记录
+    INSERT INTO payment_history (
+        user_id,
+        subscription_id,
+        payment_date,
+        amount_paid,
+        currency,
+        billing_period_start,
+        billing_period_end,
+        status,
+        notes
+    ) VALUES (
+        p_user_id,
+        p_subscription_id,
+        subscription_record.next_billing_date,
+        subscription_record.amount,
+        subscription_record.currency,
+        subscription_record.next_billing_date,
+        next_billing - INTERVAL '1 day',
+        'success',
+        'Auto-renewal processed'
+    );
+    
+    RETURN json_build_object(
+        'success', true,
+        'subscription_id', p_subscription_id,
+        'next_billing_date', next_billing,
+        'amount_paid', subscription_record.amount,
+        'currency', subscription_record.currency
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 处理到期的自动续费订阅
+CREATE OR REPLACE FUNCTION process_due_auto_renewals(p_limit INTEGER DEFAULT 500)
+RETURNS JSONB AS $$
+DECLARE
+    processed_count INTEGER := 0;
+    failed_count INTEGER := 0;
+    subscription_record RECORD;
+    renewal_result JSONB;
+BEGIN
+    -- 处理到期的自动续费订阅
+    FOR subscription_record IN
+        SELECT id, user_id, name
+        FROM subscriptions 
+        WHERE status = 'active'
+        AND renewal_type = 'auto'
+        AND next_billing_date <= CURRENT_DATE
+        ORDER BY next_billing_date
+        LIMIT p_limit
+    LOOP
+        -- 处理单个订阅续费
+        SELECT process_subscription_renewal(subscription_record.id, subscription_record.user_id) 
+        INTO renewal_result;
+        
+        IF (renewal_result->>'success')::boolean THEN
+            processed_count := processed_count + 1;
+        ELSE
+            failed_count := failed_count + 1;
+        END IF;
+    END LOOP;
+    
+    RETURN json_build_object(
+        'processed_count', processed_count,
+        'failed_count', failed_count,
+        'total_checked', processed_count + failed_count
+    );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -1051,5 +1862,36 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 =======================================================
 */
 
+/*
+=======================================================
+更新日志
+=======================================================
+
+2025-08-13 更新:
+- 添加了调度任务系统表 (scheduler_jobs, scheduler_job_runs)
+- 添加了管理员操作日志表 (admin_operation_logs)
+- 更新了用户初始化函数，支持手动调用
+- 添加了邮件和通知偏好设置的触发器函数
+- 添加了汇率更新时间戳触发器
+- 添加了订阅管理相关函数 (get_managed_subscriptions, get_dashboard_analytics)
+- 添加了自动续费处理函数 (process_subscription_renewal, process_due_auto_renewals)
+- 添加了管理员权限检查函数 (is_admin_user, has_admin_permission)
+- 添加了系统统计和用户管理函数
+- 添加了调度器管理函数
+- 添加了邮件和通知统计视图
+- 完善了索引结构，提高查询性能
+- 添加了 pg_cron 扩展支持
+
+主要功能增强:
+1. 完整的调度任务管理系统
+2. 增强的管理员权限控制
+3. 自动订阅续费处理
+4. 完善的邮件和通知系统
+5. 详细的统计和分析功能
+6. 优化的数据库索引结构
+
+=======================================================
+*/
+
 -- 文档结束标记
-SELECT 'Supabase 数据库架构文档生成完成' as documentation_status;
+SELECT 'Supabase 数据库架构文档更新完成 - 2025-08-13' as documentation_status;

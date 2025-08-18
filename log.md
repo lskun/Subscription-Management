@@ -209,3 +209,57 @@
   - 文件：`src/store/settingsStore.ts`
   - 变更：在 `setCurrency` 与 `setShowOriginalCurrency` 成功后使用 `sonner.toast.success` 提示；同步更新 `userSettingsCache` 与时间戳，清理 `userSettings` 类型的全局缓存；失败时 `toast.error`
   - 影响：交互反馈更清晰，状态更快与后端一致，避免等待下一次完整拉取
+
+- docs(expense-reports): 新增重构文档（按最大复用原则）
+  - 新增 `specs/expense_reports_refactor/requirements.md`：EARS/ERAS 需求、统一口径为 `payment_history(status='success')`、保留 2023 硬编码
+  - 新增 `specs/expense_reports_refactor/design.md`：SQL 下推聚合、索引与缓存策略、汇率最新快照、返回结构不变
+  - 新增 `specs/expense_reports_refactor/tasks.md`：实施清单（状态修正→索引→SQL 对账→Edge 改造→性能观察→测试回归）
+
+- chore(expense-reports): 实施计划第1-2步落地
+  - 修正支付状态过滤：`supabase/functions/expense-reports/index.ts` 中 `'succeeded'` → `'success'`
+  - 新增迁移 `supabase/migrations/014_expense_reports_indexes.sql`：
+    - `idx_payment_user_status_date(user_id,status,payment_date)`
+    - `idx_payment_user_sub_date(user_id,subscription_id,payment_date)`
+  - 更新 `specs/expense_reports_refactor/tasks.md` 勾选 1、2
+
+- refactor(expense-reports): 将月/季/年/趋势金额计算口径改为“实际支付流水”
+  - 文件：`supabase/functions/expense-reports/index.ts`
+  - 新增 `sumPaymentsForPeriod`（基于分组后的 `payment_history`、按最新汇率换算汇总）
+  - Monthly/Quarterly/Yearly/ExpenseInfo 改为按 period 汇总真实支付；保留 `paymentCount`
+  - 保留硬编码：2023 年年度金额置 0
+
+- refactor(expense-reports): 分类统计改为基于支付流水与订阅分类映射
+  - 从本次支付中提取 `subscription_id` 列表，仅查询必要订阅的 `categories(value,label)` 建立映射
+  - 逐笔支付按目标币种换算后累加到对应分类；未命中归入 `other`
+  - 保留硬编码：当年份为 2023 时分类总额置 0
+
+- feat(db): 新增 SQL 聚合函数以进一步下推计算
+  - 迁移：`supabase/migrations/015_expense_reports_aggregates.sql`
+  - 函数：
+    - `public.expense_monthly_aggregate(user_id, target_currency, start, end)`
+    - `public.expense_yearly_aggregate(user_id, target_currency, start, end)`（含 2023 置 0）
+    - `public.expense_category_aggregate(user_id, target_currency, start, end)`（当年为 2023 则总额置 0）
+
+- refactor(edge): Expense Reports 切换为调用 SQL 聚合函数（减少 JS reduce/分组与 DB 往返）
+  - 月度：`rpc('expense_monthly_aggregate', ...)`
+  - 年度：`rpc('expense_yearly_aggregate', ...)`
+  - 分类：`rpc('expense_category_aggregate', ...)`
+
+### 2025-08-13 (TS)
+- fix(expense-reports): 修复 `supabase/functions/expense-reports/index.ts` 中的 TypeScript 报错
+  - 问题：`years` 被推断为 `never[]`，导致后续 `year.toString()` 报错
+  - 处理：显式标注 `const years: number[] = []`，并添加中文注释说明原因与修复点
+  - 影响：通过本地 Lint 校验；不影响运行时逻辑，仅类型声明修复
+
+### 2025-08-13 (expense-reports)
+- fix(expense-reports): 对齐返回周期维度并补全为0
+  - Monthly Expenses：锚定传入 `monthlyEndDate`（无则当前日期），返回最近 4 个月，缺失补 0；并据此构建 `expenseInfo.monthly`
+  - Quarterly Expenses：基于月度聚合汇总，锚定 `quarterlyEndDate`（无则当前），返回最近 3 个季度并补 0；在季度分支直接构建 `expenseInfo.quarterly`
+  - Yearly Expenses：锚定 `yearlyEndDate`（无则当前），返回最近 3 年并补 0；并据此构建 `expenseInfo.yearly`
+  - 说明：不改变既有 SQL 聚合与汇率换算逻辑，仅在 Edge 层做时间窗归一与空月/季/年补零
+
+- feat(expense-reports): 增加“活跃订阅数”
+  - 定义：某月内发生过成功支付的订阅去重数
+  - Edge：在月度窗口内拉取 `payment_history(status='success')`，按月聚合 `distinct(subscription_id)` 为 `activeSubscriptionCount`；`expenseInfo.monthly.paymentCount` 返回该值
+  - 前端：`ExpenseReportsPage` 的 `adaptedMonthlyExpenses.subscriptionCount` 使用 `activeSubscriptionCount`，用于趋势图 Tooltip “Subscriptions”
+  - 年度：同理在年度窗口内计算 `activeSubscriptionCount` 并返回；前端 `adaptedYearlyExpenses.subscriptionCount` 使用该值

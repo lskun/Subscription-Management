@@ -1,8 +1,5 @@
 ---
-alwaysApply: true
----
----
-alwaysApply: false
+inclusion: always
 ---
 <workflow>
 1. 每当我输入新的需求的时候，为了规范需求质量和验收标准，你首先会搞清楚问题和需求

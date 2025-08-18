@@ -168,7 +168,8 @@ export function ExpenseReportsPage() {
       month: expense.month,
       year: expense.year,
       amount: expense.total,
-      subscriptionCount: 0 // 暂时设为0，后续可以从其他数据源获取
+      // 使用“活跃订阅数”：该月内发生过成功支付的订阅去重数
+      subscriptionCount: (expense as any).activeSubscriptionCount || 0
     }))
   }, [monthlyExpenses])
 
@@ -176,7 +177,8 @@ export function ExpenseReportsPage() {
     return yearlyExpenses.map(expense => ({
       year: expense.year,
       amount: expense.total,
-      subscriptionCount: 0 // 暂时设为0，后续可以从其他数据源获取
+      // 使用“活跃订阅数”：该年内发生过成功支付的订阅去重数
+      subscriptionCount: (expense as any).activeSubscriptionCount || 0
     }))
   }, [yearlyExpenses])
 

@@ -30,6 +30,7 @@ interface PaymentRecord {
   amount_paid: string;
   currency: string;
   status: string;
+  subscription_id?: string | null;
 }
 
 /**
@@ -253,9 +254,9 @@ async function fetchAllPayments(
 
     const { data: payments, error: paymentError } = await supabaseClient
       .from('payment_history')
-      .select('id, payment_date, amount_paid, currency, status')
+      .select('id, payment_date, amount_paid, currency, status, subscription_id')
       .eq('user_id', userId)
-      .eq('status', 'succeeded')
+      .eq('status', 'success')
       .gte('payment_date', startDateStr)
       .lte('payment_date', endDateStr)
       .order('payment_date', { ascending: false });
@@ -343,6 +344,30 @@ function addToGroup(groupMap: Map<string, PaymentRecord[]>, key: string, payment
 }
 
 /**
+ * 计算指定时间段内基于“实际支付流水”的总额（按目标货币换算）
+ */
+function sumPaymentsForPeriod(
+  groupedPayments: GroupedPayments,
+  periodType: 'monthly' | 'quarterly' | 'yearly',
+  periodKey: string,
+  targetCurrency: string,
+  exchangeRates: Record<string, number>
+): number {
+  try {
+    const payments = groupedPayments[periodType].get(periodKey) || [];
+    let total = 0;
+    for (const p of payments) {
+      const amountNum = parseFloat(p.amount_paid as unknown as string) || 0;
+      total += convertCurrency(amountNum, p.currency || 'CNY', targetCurrency, exchangeRates);
+    }
+    return Math.round(total * 100) / 100;
+  } catch (e) {
+    console.error('sumPaymentsForPeriod error:', e);
+    return 0;
+  }
+}
+
+/**
  * 获取指定时间段的支付记录数量
  */
 function getPaymentCountForPeriod(
@@ -364,7 +389,7 @@ function getPaymentCountForPeriod(
  */
 function calculateOptimizedExpenseInfo(
   groupedPayments: GroupedPayments,
-  activeSubscriptions: Subscription[],
+  _activeSubscriptions: Subscription[],
   exchangeRates: Record<string, number>,
   targetCurrency: string
 ): {
@@ -385,23 +410,14 @@ function calculateOptimizedExpenseInfo(
     const month = date.getMonth() + 1;
     const monthKey = `${year}-${String(month).padStart(2, '0')}`;
 
-    // 创建当前月份的日期对象，用于比较
-    const currentMonthDate = new Date(year, month - 1, 1);
-
-    // 计算该月的总费用，只考虑在该月已经开始的订阅
-    const monthlyAmount = activeSubscriptions.reduce((acc, sub: Subscription) => {
-      // 获取订阅开始日期
-      const startDate = sub.start_date ? new Date(sub.start_date) : null;
-
-      // 只计算在当前月份之前已经开始的订阅
-      if (!startDate || startDate <= currentMonthDate) {
-        const amount = parseFloat(sub.amount as string) || 0;
-        const monthlySubAmount = calculateMonthlyAmount(amount, sub.billing_cycle);
-        const convertedAmount = convertCurrency(monthlySubAmount, sub.currency || 'CNY', targetCurrency, exchangeRates);
-        return acc + convertedAmount;
-      }
-      return acc;
-    }, 0);
+    // 实际支付口径：直接汇总该月的支付流水（按目标货币换算）
+    const monthlyAmount = sumPaymentsForPeriod(
+      groupedPayments,
+      'monthly',
+      monthKey,
+      targetCurrency,
+      exchangeRates
+    );
 
     // 从分组数据中获取支付次数（这是优化的核心）
     const paymentCount = getPaymentCountForPeriod(groupedPayments, 'monthly', monthKey);
@@ -423,23 +439,14 @@ function calculateOptimizedExpenseInfo(
     const year = date.getFullYear();
     const quarterKey = `${year}-Q${quarter}`;
 
-    // 创建当前季度的第一天日期对象，用于比较
-    const quarterStartMonth = (quarter - 1) * 3;
-    const currentQuarterDate = new Date(year, quarterStartMonth, 1);
-
-    // 计算该季度的总费用，只考虑在该季度已经开始的订阅
-    const quarterlyAmount = activeSubscriptions.reduce((acc, sub: Subscription) => {
-      const startDate = sub.start_date ? new Date(sub.start_date) : null;
-
-      if (!startDate || startDate <= currentQuarterDate) {
-        const amount = parseFloat(sub.amount as string) || 0;
-        const monthlyAmount = calculateMonthlyAmount(amount, sub.billing_cycle);
-        const quarterlySubAmount = monthlyAmount * 3;
-        const convertedAmount = convertCurrency(quarterlySubAmount, sub.currency || 'CNY', targetCurrency, exchangeRates);
-        return acc + convertedAmount;
-      }
-      return acc;
-    }, 0);
+    // 实际支付口径：该季度支付流水合计
+    const quarterlyAmount = sumPaymentsForPeriod(
+      groupedPayments,
+      'quarterly',
+      quarterKey,
+      targetCurrency,
+      exchangeRates
+    );
 
     // 从分组数据中获取支付次数（这是优化的核心）
     const paymentCount = getPaymentCountForPeriod(groupedPayments, 'quarterly', quarterKey);
@@ -454,31 +461,24 @@ function calculateOptimizedExpenseInfo(
   }
 
   // 生成最近3年的数据
-  const years = [];
+  // 关键修复：显式标注 years 的类型为 number[]，避免在严格模式下被推断为 never[] 导致后续 year.toString() 报错
+  const years: number[] = [];
   for (let i = 0; i < 3; i++) {
     years.push(now.getFullYear() - i);
   }
 
   for (const year of years) {
-    let yearlyAmount = 0;
-
-    // 根据年份计算费用
+    // 实际支付口径：该年的支付流水合计
+    let yearlyAmount = sumPaymentsForPeriod(
+      groupedPayments,
+      'yearly',
+      year.toString(),
+      targetCurrency,
+      exchangeRates
+    );
+    // 保留硬编码：2023 年金额置 0
     if (year === 2023) {
-      // 2023年没有订阅，费用为0
       yearlyAmount = 0;
-    } else {
-      // 2024年及以后的年份，计算当年及之前年份开始的订阅
-      activeSubscriptions.forEach((subscription) => {
-        const startDate = subscription.start_date ? new Date(subscription.start_date) : new Date();
-        const startYear = startDate.getFullYear();
-
-        if (startYear <= year) {
-          const amount = parseFloat(subscription.amount as string) || 0;
-          const yearlySubAmount = calculateYearlyAmount(amount, subscription.billing_cycle);
-          const convertedAmount = convertCurrency(yearlySubAmount, subscription.currency || 'CNY', targetCurrency, exchangeRates);
-          yearlyAmount += convertedAmount;
-        }
-      });
     }
 
     // 计算与上一年的变化百分比
@@ -557,7 +557,7 @@ serve(async (req) => {
       quarterlyEndDate, 
       includeMonthlyExpenses = true, 
       includeYearlyExpenses = true, 
-      includeQuarterlyExpenses = false, 
+      includeQuarterlyExpenses = true, 
       includeCategoryExpenses = true, 
       includeExpenseInfo = true 
     } = requestData;
@@ -623,292 +623,282 @@ serve(async (req) => {
       timestamp: new Date().toISOString()
     };
 
-    // 步骤3: 使用优化的逻辑计算 expenseInfo（如果需要）
-    if (includeExpenseInfo) {
-      try {
-        console.log('计算优化的费用信息...');
-        const expenseInfo = calculateOptimizedExpenseInfo(
-          groupedPayments,
-          activeSubscriptions,
-          exchangeRates,
-          targetCurrency
-        );
-        response.expenseInfo = expenseInfo;
-        console.log('费用信息计算完成');
-      } catch (error) {
-        console.error('计算费用信息时出错:', error);
-        response.expenseInfo = {
-          monthly: [],
-          quarterly: [],
-          yearly: []
-        };
-      }
-    }
+    // 步骤3: expenseInfo 将在获取 SQL 聚合后统一基于 SQL 结果构建，以确保口径一致
 
-    // 获取月度费用数据（保持原有逻辑以确保兼容性）
+    // 获取月度费用数据（改为 SQL 聚合函数）
     if (includeMonthlyExpenses && monthlyStartDate && monthlyEndDate) {
       try {
-        console.log('计算月度费用数据...');
-        const monthlyExpenses: any[] = [];
-        const monthlyMap = new Map();
-        const startDate = new Date(monthlyStartDate);
-        const endDate = new Date(monthlyEndDate);
-
-        // 生成月份范围
-        const current = new Date(startDate);
-        while (current <= endDate) {
-          const monthKey = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`;
-          monthlyMap.set(monthKey, 0);
-          current.setMonth(current.getMonth() + 1);
+        console.log('计算月度费用数据（SQL 聚合）...');
+        console.time('expense-reports:monthly_sql')
+        const mStart = String(monthlyStartDate).slice(0, 10);
+        const mEnd = String(monthlyEndDate).slice(0, 10);
+        const { data: monthlyRows, error: monthlyErr } = await supabaseClient
+          .rpc('expense_monthly_aggregate', {
+            p_user_id: user.id,
+            p_target_currency: targetCurrency,
+            p_start: mStart,
+            p_end: mEnd,
+          });
+        console.timeEnd('expense-reports:monthly_sql')
+        if (monthlyErr) throw monthlyErr;
+        // 归一：按最近4个月（锚定 mEnd 或当前日期）补全为0
+        const anchor = mEnd ? new Date(mEnd) : new Date();
+        const monthKeys: string[] = [];
+        for (let i = 3; i >= 0; i--) {
+          const d = new Date(anchor.getFullYear(), anchor.getMonth() - i, 1);
+          const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          monthKeys.push(mk);
         }
-
-        console.log(`生成了 ${monthlyMap.size} 个月的范围`);
-
-        // 计算每个月的总费用和支付数量（使用分组数据优化）
-        for (const [monthKey, _] of monthlyMap.entries()) {
-          try {
-            const [yearStr, monthStr] = monthKey.split('-');
-            const year = parseInt(yearStr);
-            const month = parseInt(monthStr);
-
-            // 创建当前月份的日期对象，用于比较
-            const currentMonthDate = new Date(year, month - 1, 1);
-
-            // 计算该月的理论费用（基于订阅）
-            const totalMonthlyExpense = activeSubscriptions.reduce((acc, sub: Subscription) => {
-              const startDate = sub.start_date ? new Date(sub.start_date) : null;
-
-              if (!startDate || startDate <= currentMonthDate) {
-                const amount = parseFloat(sub.amount as string) || 0;
-                const monthlyAmount = calculateMonthlyAmount(amount, sub.billing_cycle);
-                const convertedAmount = convertCurrency(monthlyAmount, sub.currency || 'CNY', targetCurrency, exchangeRates);
-                return acc + convertedAmount;
-              }
-              return acc;
-            }, 0);
-
-            // 从分组数据中获取支付次数（优化：避免数据库查询）
-            const paymentCount = getPaymentCountForPeriod(groupedPayments, 'monthly', monthKey);
-
-            monthlyExpenses.push({
-              month: monthKey,
-              year: parseInt(yearStr),
-              total: Math.round(totalMonthlyExpense * 100) / 100,
-              currency: targetCurrency,
-              paymentCount: paymentCount
-            });
-          } catch (monthError) {
-            console.error(`计算 ${monthKey} 月份费用时出错:`, monthError);
-            const [year, month] = monthKey.split('-');
-            monthlyExpenses.push({
-              month: monthKey,
-              year: parseInt(year),
-              total: 0,
-              currency: targetCurrency,
-              paymentCount: 0
-            });
-          }
+        const byMonth: Record<string, any> = {};
+        const byMonthPaymentCount: Record<string, number> = {};
+        (monthlyRows || []).forEach((r: any) => { byMonth[r.month] = r; byMonthPaymentCount[r.month] = Number(r.payment_count) || 0; });
+        // 计算每月活跃订阅数（定义：该月发生过成功支付的去重订阅数）
+        const { data: phRows, error: phErr } = await supabaseClient
+          .from('payment_history')
+          .select('payment_date, subscription_id')
+          .eq('user_id', user.id)
+          .eq('status', 'success')
+          .gte('payment_date', mStart)
+          .lte('payment_date', mEnd);
+        if (phErr) {
+          console.warn('拉取支付记录用于计算活跃订阅数时出错，将默认0：', phErr);
         }
-
-        console.log(`生成了 ${monthlyExpenses.length} 个月的费用数据`);
-        response.monthlyExpenses = monthlyExpenses.sort((a, b) => a.month.localeCompare(b.month));
+        const activeSubsSets: Record<string, Set<string>> = {};
+        (phRows || []).forEach((row: any) => {
+          const d = new Date(row.payment_date);
+          if (isNaN(d.getTime())) return;
+          const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          if (!activeSubsSets[mk]) activeSubsSets[mk] = new Set<string>();
+          if (row.subscription_id) activeSubsSets[mk].add(row.subscription_id);
+        });
+        const activeSubsByMonth: Record<string, number> = {};
+        Object.keys(activeSubsSets).forEach((mk) => { activeSubsByMonth[mk] = activeSubsSets[mk].size; });
+        const filledMonthly = monthKeys.map((mk) => {
+          const row = byMonth[mk];
+          const year = parseInt(mk.slice(0, 4));
+          return {
+            month: mk,
+            year,
+            total: row ? (Number(row.total) || 0) : 0,
+            currency: row?.currency || targetCurrency,
+            activeSubscriptionCount: activeSubsByMonth[mk] || 0,
+          };
+        });
+        response.monthlyExpenses = filledMonthly;
+        // 基于补全后的 monthly 构建 expenseInfo.monthly
+        if (includeExpenseInfo) {
+          const expenseMonthly = filledMonthly.map((r: any, idx: number) => {
+            const prev = idx > 0 ? filledMonthly[idx - 1] : null;
+            const cur = Number(r.total) || 0;
+            const prevVal = prev ? Number(prev.total) || 0 : 0;
+            const change = prevVal > 0 ? Math.round(((cur - prevVal) / prevVal) * 1000) / 10 : 0;
+            return {
+              period: r.month,
+              amount: cur,
+              change,
+              currency: r.currency || targetCurrency,
+              // 产品含义为“活跃订阅数”，这里将 paymentCount 字段返回为当月发生过成功支付的去重订阅数
+              paymentCount: r.activeSubscriptionCount || 0,
+            };
+          });
+          response.expenseInfo = response.expenseInfo || { monthly: [], quarterly: [], yearly: [] };
+          response.expenseInfo.monthly = expenseMonthly;
+        }
       } catch (error) {
         console.error('计算月度费用数据时出错:', error);
         response.monthlyExpenses = [];
       }
     }
 
-    // 获取季度费用数据（使用优化逻辑）
-    if (includeQuarterlyExpenses && quarterlyStartDate && quarterlyEndDate) {
+    // 获取季度费用数据（使用优化逻辑；未提供时间范围时按锚点自动推导最近3个季度并补0）
+    if (includeQuarterlyExpenses) {
       try {
-        console.log('计算季度费用数据...');
-        const quarterlyExpenses: any[] = [];
-        const quarterlyMap = new Map();
-
-        // 生成季度范围
-        let currentDate = new Date(quarterlyStartDate);
-        const endDate = new Date(quarterlyEndDate);
-
-        while (currentDate <= endDate) {
-          const year = currentDate.getFullYear();
-          const quarter = Math.floor(currentDate.getMonth() / 3) + 1;
-          const key = `${year}-Q${quarter}`;
-          quarterlyMap.set(key, 0);
-
-          // 移动到下个季度
-          currentDate.setMonth(currentDate.getMonth() + 3);
+        console.log('计算季度费用数据（基于月度聚合，并补全最近3个季度）...');
+        // 确定锚点：优先 quarterlyEndDate，否则当前时间
+        const qAnchor = quarterlyEndDate ? new Date(String(quarterlyEndDate).slice(0, 10)) : new Date();
+        const currentQuarter = Math.floor(qAnchor.getMonth() / 3) + 1;
+        const anchorYear = qAnchor.getFullYear();
+        // 计算最近3个季度键（升序）
+        const quarterKeys: string[] = [];
+        for (let i = 2; i >= 0; i--) {
+          const totalQuartersFromYearStart = (currentQuarter - 1) - i;
+          const yearOffset = Math.floor(totalQuartersFromYearStart / 4);
+          const quarterIndex = ((totalQuartersFromYearStart % 4) + 4) % 4; // 0..3
+          const year = anchorYear + yearOffset;
+          const quarterNum = quarterIndex + 1;
+          quarterKeys.push(`${year}-Q${quarterNum}`);
         }
-
-        // 计算每季度的总费用和支付数量（使用分组数据优化）
-        for (const [quarterKey, _] of quarterlyMap.entries()) {
-          const [yearStr, quarterStr] = quarterKey.split('-');
-          const year = parseInt(yearStr);
-          const quarter = parseInt(quarterStr.substring(1));
-
-          // 创建当前季度的第一天日期对象，用于比较
-          const quarterStartMonth = (quarter - 1) * 3;
-          const currentQuarterDate = new Date(year, quarterStartMonth, 1);
-
-          const totalQuarterlyExpense = activeSubscriptions.reduce((acc, sub: Subscription) => {
-            const startDate = sub.start_date ? new Date(sub.start_date) : null;
-
-            if (!startDate || startDate <= currentQuarterDate) {
-              const amount = parseFloat(sub.amount as string) || 0;
-              const monthlyAmount = calculateMonthlyAmount(amount, sub.billing_cycle);
-              const quarterlyAmount = monthlyAmount * 3;
-              const convertedAmount = convertCurrency(quarterlyAmount, sub.currency || 'CNY', targetCurrency, exchangeRates);
-              return acc + convertedAmount;
-            }
-            return acc;
-          }, 0);
-
-          // 从分组数据中获取支付次数（优化：避免数据库查询）
-          const paymentCount = getPaymentCountForPeriod(groupedPayments, 'quarterly', quarterKey);
-
-          quarterlyExpenses.push({
-            year,
-            quarter,
-            total: Math.round(totalQuarterlyExpense * 100) / 100,
-            currency: targetCurrency,
-            paymentCount: paymentCount
-          });
-        }
-
-        console.log(`生成了 ${quarterlyExpenses.length} 个季度的费用数据`);
-        response.quarterlyExpenses = quarterlyExpenses.sort((a, b) => {
-          if (a.year !== b.year) return a.year - b.year;
-          return a.quarter - b.quarter;
+        // 计算查询窗口：从最早季度的起始月到当前季度的结束月
+        const firstQ = quarterKeys[0];
+        const [fy, fq] = firstQ.split('-Q').map((v) => parseInt(v, 10));
+        const firstStart = new Date(fy, (fq - 1) * 3, 1);
+        const lastQ = quarterKeys[quarterKeys.length - 1];
+        const [ly, lq] = lastQ.split('-Q').map((v) => parseInt(v, 10));
+        const lastEnd = new Date(ly, lq * 3, 0); // 季度末日
+        const qStartStr = firstStart.toISOString().slice(0, 10);
+        const qEndStr = lastEnd.toISOString().slice(0, 10);
+        // 拉取该窗口的月度聚合
+        const { data: monthlyRowsForQ, error: qErr } = await supabaseClient.rpc('expense_monthly_aggregate', {
+          p_user_id: user.id,
+          p_target_currency: targetCurrency,
+          p_start: qStartStr,
+          p_end: qEndStr,
         });
+        if (qErr) throw qErr;
+        // 按季度汇总
+        const grouped: Record<string, { amount: number; count: number; currency: string }> = {};
+        (monthlyRowsForQ || []).forEach((r: any) => {
+          const [y, m] = String(r.month).split('-').map((v: string) => parseInt(v, 10));
+          const q = Math.floor((m - 1) / 3) + 1;
+          const key = `${y}-Q${q}`;
+          if (!grouped[key]) grouped[key] = { amount: 0, count: 0, currency: r.currency || targetCurrency };
+          grouped[key].amount += Number(r.total) || 0;
+          grouped[key].count += Number(r.payment_count) || 0;
+        });
+        const quarterlyExpenses = quarterKeys.map((k) => {
+          const g = grouped[k];
+          const [yy, qq] = k.split('-Q').map((v) => parseInt(v, 10));
+          return {
+            year: yy,
+            quarter: qq,
+            total: Math.round((g?.amount || 0) * 100) / 100,
+            currency: g?.currency || targetCurrency,
+            paymentCount: g?.count || 0,
+          };
+        });
+        response.quarterlyExpenses = quarterlyExpenses;
+        // 关键修复：在季度计算处直接构建 expenseInfo.quarterly，避免依赖分类分支
+        if (includeExpenseInfo) {
+          const expenseQuarterly = quarterlyExpenses.map((r, idx) => {
+            const prev = idx > 0 ? quarterlyExpenses[idx - 1] : null;
+            const cur = Number(r.total) || 0;
+            const prevVal = prev ? Number(prev.total) || 0 : 0;
+            const change = prevVal > 0 ? Math.round(((cur - prevVal) / prevVal) * 1000) / 10 : 0;
+            return { period: `${r.year}-Q${r.quarter}`, amount: cur, change, currency: r.currency || targetCurrency, paymentCount: r.paymentCount || 0 };
+          });
+          response.expenseInfo = response.expenseInfo || { monthly: [], quarterly: [], yearly: [] };
+          response.expenseInfo.quarterly = expenseQuarterly;
+        }
       } catch (error) {
         console.error('计算季度费用数据时出错:', error);
         response.quarterlyExpenses = [];
       }
     }
 
-    // 获取年度费用数据（使用优化逻辑）
-    if (includeYearlyExpenses && yearlyStartDate && yearlyEndDate) {
+    // 获取年度费用数据（改为 SQL 聚合函数；未提供时间范围时按当前年份锚定返回最近3年并补0）
+    if (includeYearlyExpenses) {
       try {
-        console.log('计算年度费用数据...');
-        const yearlyExpenses: any[] = [];
-        const yearlyMap = new Map();
-        const startYear = new Date(yearlyStartDate).getFullYear();
-        const endYear = new Date(yearlyEndDate).getFullYear();
-
-        // 生成年份范围
-        for (let year = startYear; year <= endYear; year++) {
-          yearlyMap.set(year, 0);
-        }
-
-        // 计算每年的总费用（使用分组数据优化）
-        for (const [year, _] of yearlyMap.entries()) {
-          let totalYearlyExpense = 0;
-
-          if (year === 2023) {
-            // 2023年没有订阅，费用为0
-            totalYearlyExpense = 0;
-          } else {
-            // 2024年及以后的年份，计算当年及之前年份开始的订阅
-            totalYearlyExpense = activeSubscriptions.reduce((acc, sub: Subscription) => {
-              const startDate = sub.start_date ? new Date(sub.start_date) : new Date();
-              const startYear = startDate.getFullYear();
-
-              if (startYear <= year) {
-                const amount = parseFloat(sub.amount as string) || 0;
-                const yearlyAmount = calculateYearlyAmount(amount, sub.billing_cycle);
-                const convertedAmount = convertCurrency(yearlyAmount, sub.currency || 'CNY', targetCurrency, exchangeRates);
-                return acc + convertedAmount;
-              }
-              return acc;
-            }, 0);
-          }
-
-          // 从分组数据中获取支付次数（优化：避免数据库查询）
-          const paymentCount = getPaymentCountForPeriod(groupedPayments, 'yearly', year.toString());
-
-          yearlyExpenses.push({
-            year,
-            total: Math.round(totalYearlyExpense * 100) / 100,
-            currency: targetCurrency,
-            paymentCount: paymentCount
+        console.log('计算年度费用数据（SQL 聚合）...');
+        console.time('expense-reports:yearly_sql')
+        // 允许不传 yearlyStartDate/yearlyEndDate：
+        // 当未提供时，以锚点年（yearlyEndDate 或 当前年）构造覆盖最近3年的查询窗口
+        const nowForYear = new Date();
+        const providedStart = yearlyStartDate ? String(yearlyStartDate).slice(0, 10) : null;
+        const providedEnd = yearlyEndDate ? String(yearlyEndDate).slice(0, 10) : null;
+        const anchorYear = providedEnd ? new Date(providedEnd).getFullYear() : nowForYear.getFullYear();
+        const yStart = providedStart || new Date(anchorYear - 2, 0, 1).toISOString().slice(0, 10);
+        const yEnd = providedEnd || new Date(anchorYear, 11, 31).toISOString().slice(0, 10);
+        const { data: yearlyRows, error: yearlyErr } = await supabaseClient
+          .rpc('expense_yearly_aggregate', {
+            p_user_id: user.id,
+            p_target_currency: targetCurrency,
+            p_start: yStart,
+            p_end: yEnd,
           });
+        console.timeEnd('expense-reports:yearly_sql')
+        if (yearlyErr) throw yearlyErr;
+        // 计算每年“活跃订阅数”（定义：该年内发生过成功支付的去重订阅数）
+        const { data: phYearRows, error: phYearErr } = await supabaseClient
+          .from('payment_history')
+          .select('payment_date, subscription_id')
+          .eq('user_id', user.id)
+          .eq('status', 'success')
+          .gte('payment_date', yStart)
+          .lte('payment_date', yEnd);
+        if (phYearErr) {
+          console.warn('拉取支付记录用于计算年度活跃订阅数时出错，将默认0：', phYearErr);
         }
-
-        console.log(`生成了 ${yearlyExpenses.length} 年的费用数据`);
-        response.yearlyExpenses = yearlyExpenses.sort((a, b) => a.year - b.year);
+        const activeSubsYearSets: Record<string, Set<string>> = {};
+        (phYearRows || []).forEach((row: any) => {
+          const d = new Date(row.payment_date);
+          if (isNaN(d.getTime())) return;
+          const yk = String(d.getFullYear());
+          if (!activeSubsYearSets[yk]) activeSubsYearSets[yk] = new Set<string>();
+          if (row.subscription_id) activeSubsYearSets[yk].add(row.subscription_id);
+        });
+        const activeSubsByYear: Record<string, number> = {};
+        Object.keys(activeSubsYearSets).forEach((yk) => { activeSubsByYear[yk] = activeSubsYearSets[yk].size; });
+        // 补全最近3年（锚定 yEnd 或当前年份）
+        const yAnchor = new Date(yEnd);
+        const anchorY = yAnchor.getFullYear();
+        const yearKeys: number[] = [anchorY - 2, anchorY - 1, anchorY];
+        const byYear: Record<string, any> = {};
+        (yearlyRows || []).forEach((r: any) => { byYear[String(r.year)] = r; });
+        const filledYearly = yearKeys.map((y) => {
+          const row = byYear[String(y)];
+          const total = row ? (Number(row.total) || 0) : 0;
+          return {
+            year: y,
+            total,
+            currency: row?.currency || targetCurrency,
+            activeSubscriptionCount: activeSubsByYear[String(y)] || 0,
+          };
+        });
+        response.yearlyExpenses = filledYearly;
+        // 基于补全后的 yearly 构建 expenseInfo.yearly
+        if (includeExpenseInfo) {
+          const expenseYearly = filledYearly.map((r: any, idx: number) => {
+            const prev = idx > 0 ? filledYearly[idx - 1] : null;
+            const cur = Number(r.total) || 0;
+            const prevVal = prev ? Number(prev.total) || 0 : 0;
+            const change = prevVal > 0 ? Math.round(((cur - prevVal) / prevVal) * 1000) / 10 : 0;
+            return {
+              period: String(r.year),
+              amount: cur,
+              change,
+              currency: r.currency || targetCurrency,
+              // 产品含义为“活跃订阅数”，这里将 paymentCount 字段返回为当年发生过成功支付的去重订阅数
+              paymentCount: r.activeSubscriptionCount || 0,
+            };
+          });
+          response.expenseInfo = response.expenseInfo || { monthly: [], quarterly: [], yearly: [] };
+          response.expenseInfo.yearly = expenseYearly;
+        }
       } catch (error) {
         console.error('计算年度费用数据时出错:', error);
         response.yearlyExpenses = [];
       }
     }
 
-    // 获取分类费用数据（保持原有逻辑）
+    // 获取分类费用数据（改为 SQL 聚合函数）
     if (includeCategoryExpenses) {
       try {
-        console.log('计算分类费用数据...');
-        const categoryMap = new Map();
-
-        // 获取当前年份
-        const currentYear = new Date().getFullYear();
-
-        activeSubscriptions.forEach((subscription: Subscription) => {
-          try {
-            // 获取订阅开始日期
-            const startDate = subscription.start_date ? new Date(subscription.start_date) : new Date();
-            const startYear = startDate.getFullYear();
-
-            // 根据当前年份采用不同的计算逻辑
-            let includeSubscription = false;
-
-            if (currentYear === 2023) {
-              // 2023年没有订阅，费用为0
-              includeSubscription = false;
-            } else {
-              // 2024年及以后的年份，计算当年及之前年份开始的订阅
-              includeSubscription = (startYear <= currentYear);
-            }
-
-            if (includeSubscription) {
-              const amount = parseFloat(subscription.amount as string) || 0;
-              const yearlyAmount = calculateYearlyAmount(amount, subscription.billing_cycle);
-              const convertedAmount = convertCurrency(yearlyAmount, subscription.currency || 'CNY', targetCurrency, exchangeRates);
-              const categoryValue = subscription.categories?.value || 'other';
-              const categoryLabel = subscription.categories?.label || '其他';
-
-              if (!categoryMap.has(categoryValue)) {
-                categoryMap.set(categoryValue, {
-                  category: categoryValue,
-                  label: categoryLabel,
-                  total: 0,
-                  currency: targetCurrency,
-                  subscriptions: []
-                });
-              }
-
-              const categoryData = categoryMap.get(categoryValue);
-              categoryData.total += convertedAmount;
-              categoryData.subscriptions.push({
-                id: subscription.id,
-                name: subscription.name,
-                amount: convertedAmount,
-                currency: targetCurrency,
-                billing_cycle: subscription.billing_cycle
-              });
-            }
-          } catch (subscriptionError) {
-            console.error(`处理订阅 ${subscription.id} 时出错:`, subscriptionError);
-          }
-        });
-
-        // 转换为数组并排序
-        const categoryExpenses = Array.from(categoryMap.values())
-          .map(category => ({
-            ...category,
-            total: Math.round(category.total * 100) / 100
-          }))
-          .sort((a, b) => b.total - a.total);
-
-        console.log(`生成了 ${categoryExpenses.length} 个分类的费用数据`);
-        response.categoryExpenses = categoryExpenses;
+        console.log('计算分类费用数据（SQL 聚合）...');
+        console.time('expense-reports:category_sql')
+        // 选择分类计算窗口：优先使用 monthlyStart/end，其次 yearlyStart/end，最后 fallback 为最近一年
+        let cStart = monthlyStartDate ? String(monthlyStartDate).slice(0, 10) : null;
+        let cEnd = monthlyEndDate ? String(monthlyEndDate).slice(0, 10) : null;
+        if (!cStart || !cEnd) {
+          cStart = yearlyStartDate ? String(yearlyStartDate).slice(0, 10) : new Date(new Date().getFullYear() - 1, 0, 1).toISOString().slice(0, 10);
+          cEnd = yearlyEndDate ? String(yearlyEndDate).slice(0, 10) : new Date().toISOString().slice(0, 10);
+        }
+        const { data: catRows, error: catErr } = await supabaseClient
+          .rpc('expense_category_aggregate', {
+            p_user_id: user.id,
+            p_target_currency: targetCurrency,
+            p_start: cStart,
+            p_end: cEnd,
+          });
+        console.timeEnd('expense-reports:category_sql')
+        if (catErr) throw catErr;
+        response.categoryExpenses = (catRows || []).map((r: any) => ({
+          category: r.category,
+          label: r.label,
+          total: Number(r.total) || 0,
+          currency: r.currency || targetCurrency,
+          subscriptionCount: Number(r.subscription_count) || 0,
+        }));
+        // expenseInfo.quarterly 已在季度分支构建
       } catch (error) {
         console.error('计算分类费用数据时出错:', error);
         response.categoryExpenses = [];

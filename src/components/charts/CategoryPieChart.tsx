@@ -33,22 +33,18 @@ export function CategoryPieChart({ data, currency, className }: CategoryPieChart
   console.log('CategoryPieChart - data:', data)
   console.log('CategoryPieChart - data.length:', data.length)
   
-  // Get category label
-  const getCategoryLabel = (categoryValue: string) => {
-    const category = categories.find(c => c.value === categoryValue)
-    return category?.label || categoryValue
-  }
+  // 不再使用字典 label，直接展示后端返回的 category 值
   
   // Prepare chart data with colors
   const chartData = data.map((item, index) => ({
     ...item,
-    label: getCategoryLabel(item.category),
+    label: item.category,
     color: COLORS[index % COLORS.length]
   }))
   
   const chartConfig = chartData.reduce((config, item, index) => {
     config[item.category] = {
-      label: item.label,
+      label: item.category,
       color: COLORS[index % COLORS.length],
     }
     return config
@@ -94,7 +90,7 @@ export function CategoryPieChart({ data, currency, className }: CategoryPieChart
                           return (
                             <div className="rounded-lg border bg-background p-3 shadow-md">
                               <div className="grid gap-2">
-                                <div className="font-medium">{data.label}</div>
+                                <div className="font-medium">{data.category}</div>
                                 <div className="grid gap-1 text-sm">
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="text-muted-foreground">Amount:</span>
@@ -126,7 +122,7 @@ export function CategoryPieChart({ data, currency, className }: CategoryPieChart
                     className="h-3 w-3 rounded-sm"
                     style={{ backgroundColor: item.color }}
                   />
-                  <span className="text-muted-foreground">{item.label}</span>
+                  <span className="text-muted-foreground">{item.category}</span>
                 </div>
               ))}
             </div>
