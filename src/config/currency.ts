@@ -123,6 +123,13 @@ export const DEFAULT_EXCHANGE_RATES: Record<CurrencyType, number> = generateComp
 
 // 工具函数
 export const isBaseCurrency = (currency: string): boolean => currency === BASE_CURRENCY;
-export const getBaseCurrency = (): CurrencyType => useSettingsStore.getState().currency;
+export const getBaseCurrency = (): CurrencyType => {
+  try {
+    return useSettingsStore.getState().currency || BASE_CURRENCY;
+  } catch (e) {
+    // 在单元测试或初始化阶段，store 可能未初始化，返回默认基础货币
+    return BASE_CURRENCY;
+  }
+};
 export const getCurrencySymbol = (currency: CurrencyType): string => CURRENCY_INFO[currency]?.symbol || currency;
 export const getCurrencyName = (currency: CurrencyType): string => CURRENCY_INFO[currency]?.name || currency;

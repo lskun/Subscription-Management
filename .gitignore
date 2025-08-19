@@ -1,7 +1,16 @@
 node_modules
 dist
 
+.kiro
+.trae
+.cursor
+.vscode
+
+/tests
+/test-results
+
 .env
-.env.development
+.env.development.example
+.env.production.example
 
 server/db/database.sqlite

@@ -208,24 +208,32 @@ export class SupabaseExchangeRateService {
 
   /**
    * 将汇率数组转换为汇率映射对象
+   * 支持双向汇率：既包含直接汇率，也包含计算出的反向汇率
    */
   static ratesToMap(rates: ExchangeRate[]): Record<string, number> {
     const rateMap: Record<string, number> = {}
     const baseCurrency = getBaseCurrency()
 
     for (const rate of rates) {
-      // 使用 from_currency 作为键，rate 作为值
-      // 这样可以直接查找从基础货币到其他货币的汇率
-      if (rate.from_currency === baseCurrency) {
-        // 确保 rate 是数字类型
-        const rateValue = typeof rate.rate === 'number' ? rate.rate : parseFloat(rate.rate) || 0
-        rateMap[rate.to_currency] = rateValue
+      const rateValue = typeof rate.rate === 'number' ? rate.rate : parseFloat(rate.rate) || 0
+      
+      if (rateValue > 0) {
+        // 处理从基础货币到其他货币的汇率 (CNY → USD)
+        if (rate.from_currency === baseCurrency) {
+          rateMap[rate.to_currency] = rateValue
+        }
+        // 处理从其他货币到基础货币的汇率 (USD → CNY)
+        else if (rate.to_currency === baseCurrency) {
+          // 计算反向汇率：如果 CNY → USD = 0.1395，则 USD → CNY = 1/0.1395 = 7.168
+          rateMap[rate.from_currency] = 1.0 / rateValue
+        }
       }
     }
 
     // 确保基础货币到自身的汇率为 1
     rateMap[baseCurrency] = 1
 
+    console.debug('构建的汇率映射:', rateMap)
     return rateMap
   }
 

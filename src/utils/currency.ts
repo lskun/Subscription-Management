@@ -133,3 +133,4 @@ export function formatCurrency(
   }
   return `${formatCurrencyAmount(convertedAmount, userCurrency)} (${formatCurrencyAmount(amount, originalCurrency)})`
 }
+

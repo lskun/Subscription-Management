@@ -15,6 +15,7 @@ import { formatCurrencyAmount, formatWithUserCurrency } from "@/utils/currency"
 import { transformPaymentsFromApi, type PaymentRecord } from '@/utils/dataTransform'
 import { supabase } from '@/lib/supabase'
 import { formatDateDisplay } from '@/utils/date'
+import { useSettingsStore } from '@/store/settingsStore'
 import {
   Search,
   Calendar,
@@ -61,12 +62,13 @@ export function ExpenseDetailDialog({ isOpen, onClose, periodData }: ExpenseDeta
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalRecords, setTotalRecords] = useState(0)
-
+  
   const pageSize = 10
 
   // Fetch payment data when dialog opens
   useEffect(() => {
     if (isOpen && periodData) {
+      // 汇率数据已在用户登录时自动加载到settingsStore，直接使用缓存
       fetchPaymentData()
     }
   }, [isOpen, periodData])

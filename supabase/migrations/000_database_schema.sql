@@ -1765,6 +1765,67 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- 获取分类费用的支出统计函数
+CREATE OR REPLACE FUNCTION get_category_expense_summary(
+  p_user_id UUID,
+  p_target_currency TEXT DEFAULT 'CNY'
+)
+RETURNS JSON
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  result JSON;
+  total_payment_amount DECIMAL;
+BEGIN
+  -- 先计算总实际支付金额（过去12个月）
+  SELECT SUM(ph.amount_paid * get_latest_exchange_rate(ph.currency, p_target_currency))
+  INTO total_payment_amount
+  FROM payment_history ph
+  WHERE ph.user_id = p_user_id 
+    AND ph.status = 'success'
+    AND ph.payment_date >= (CURRENT_DATE - INTERVAL '12 months');
+
+  WITH category_stats AS (
+    SELECT 
+      c.label as category_name,
+      c.value as category_value,
+      SUM(ph.amount_paid * get_latest_exchange_rate(ph.currency, p_target_currency)) as total_amount,
+      COUNT(*) as payment_count,
+      COUNT(DISTINCT ph.subscription_id) as subscription_count
+    FROM payment_history ph
+    JOIN subscriptions s ON ph.subscription_id = s.id
+    JOIN categories c ON s.category_id = c.id
+    WHERE ph.user_id = p_user_id 
+      AND ph.status = 'success'
+      AND ph.payment_date >= (CURRENT_DATE - INTERVAL '12 months')
+    GROUP BY c.id, c.label, c.value
+    ORDER BY total_amount DESC
+  )
+  SELECT json_build_object(
+    'categories', (
+      SELECT json_agg(
+        json_build_object(
+          'name', category_name,
+          'value', category_value,
+          'monthlyTotal', 0, -- 不再计算月度预估
+          'yearlyTotal', total_amount, -- 改为实际支付总额
+          'subscriptionCount', subscription_count,
+          'paymentCount', payment_count,
+          'percentage', ROUND(
+            (total_amount * 100.0 / NULLIF(total_payment_amount, 0)), 2
+          )
+        )
+      )
+      FROM category_stats
+    ),
+    'totalAmount', total_payment_amount,
+    'currency', p_target_currency,
+    'timestamp', NOW(),
+    'dataSource', 'actual_payments' -- 标识数据来源
+  ) INTO result;
+  
+  RETURN result;
+END;
 /*
 =======================================================
 定时任务和维护
@@ -1893,5 +1954,143 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 =======================================================
 */
 
+/*
+=======================================================
+2025-08-19 重要函数恢复记录
+=======================================================
+*/
+
+-- get_expense_summary_optimized 函数 - 费用汇总优化函数
+-- 创建时间: 2025-08-19
+-- 修改原因: 用户误删函数，需要恢复关键业务逻辑
+-- 功能说明: 基于实际支付记录计算费用汇总，支持月度、季度、年度统计
+-- 重要性: 核心业务函数，ExpenseReports页面的主要数据源
+
+CREATE OR REPLACE FUNCTION get_expense_summary_optimized(
+  p_user_id UUID,
+  p_target_currency TEXT DEFAULT 'CNY'
+)
+RETURNS JSON
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  result JSON;
+  current_year INTEGER;
+  current_month INTEGER;
+  current_quarter INTEGER;
+BEGIN
+  current_year := EXTRACT(YEAR FROM CURRENT_DATE);
+  current_month := EXTRACT(MONTH FROM CURRENT_DATE);
+  current_quarter := EXTRACT(QUARTER FROM CURRENT_DATE);
+  
+  -- 修复后的基于支付记录的计算，使用更宽松的时间范围
+  WITH monthly_payment_data AS (
+    -- 基于实际支付的月度统计 - 最近6个月确保覆盖所有相关数据
+    SELECT 
+      EXTRACT(YEAR FROM ph.payment_date) as year,
+      EXTRACT(MONTH FROM ph.payment_date) as month,
+      EXTRACT(YEAR FROM ph.payment_date) || '-' || lpad(EXTRACT(MONTH FROM ph.payment_date)::text, 2, '0') as period,
+      SUM(ph.amount_paid * get_latest_exchange_rate(ph.currency, p_target_currency)) as payment_amount,
+      COUNT(*) as payment_count,
+      COUNT(DISTINCT ph.subscription_id) as active_subscriptions
+    FROM payment_history ph
+    WHERE ph.user_id = p_user_id 
+      AND ph.status = 'success'
+      AND ph.payment_date >= (CURRENT_DATE - INTERVAL '6 months') -- 扩大范围确保包含所有相关数据
+    GROUP BY EXTRACT(YEAR FROM ph.payment_date), EXTRACT(MONTH FROM ph.payment_date)
+  ),
+  quarterly_payment_data AS (
+    -- 基于实际支付的季度统计 - 最近12个月确保覆盖3个季度
+    SELECT 
+      EXTRACT(YEAR FROM ph.payment_date) as year,
+      EXTRACT(QUARTER FROM ph.payment_date) as quarter,
+      EXTRACT(YEAR FROM ph.payment_date) || '-Q' || EXTRACT(QUARTER FROM ph.payment_date) as period,
+      SUM(ph.amount_paid * get_latest_exchange_rate(ph.currency, p_target_currency)) as amount,
+      COUNT(*) as payment_count,
+      COUNT(DISTINCT ph.subscription_id) as subscription_count
+    FROM payment_history ph
+    WHERE ph.user_id = p_user_id 
+      AND ph.status = 'success'
+      AND ph.payment_date >= (CURRENT_DATE - INTERVAL '12 months') -- 确保覆盖所有季度
+    GROUP BY EXTRACT(YEAR FROM ph.payment_date), EXTRACT(QUARTER FROM ph.payment_date)
+    ORDER BY year DESC, quarter DESC
+    LIMIT 3
+  ),
+  yearly_payment_data AS (
+    -- 基于实际支付的年度统计 - 最近3年
+    SELECT 
+      EXTRACT(YEAR FROM ph.payment_date) as year,
+      EXTRACT(YEAR FROM ph.payment_date)::text as period,
+      SUM(ph.amount_paid * get_latest_exchange_rate(ph.currency, p_target_currency)) as amount,
+      COUNT(*) as payment_count,
+      COUNT(DISTINCT ph.subscription_id) as subscription_count
+    FROM payment_history ph
+    WHERE ph.user_id = p_user_id 
+      AND ph.status = 'success'
+      AND EXTRACT(YEAR FROM ph.payment_date) >= (current_year - 2)
+      AND EXTRACT(YEAR FROM ph.payment_date) <= current_year
+    GROUP BY EXTRACT(YEAR FROM ph.payment_date)
+    ORDER BY year DESC
+    LIMIT 3
+  )
+  SELECT json_build_object(
+    'monthly', (
+      SELECT json_agg(
+        json_build_object(
+          'year', year,
+          'month', month,
+          'period', period,
+          'subscriptionAmount', 0,
+          'paymentAmount', COALESCE(payment_amount, 0),
+          'activeSubscriptions', COALESCE(active_subscriptions, 0),
+          'paymentCount', COALESCE(payment_count, 0)
+        ) ORDER BY year DESC, month DESC
+      )
+      FROM monthly_payment_data
+    ),
+    'quarterly', (
+      SELECT json_agg(
+        json_build_object(
+          'year', year,
+          'quarter', quarter,
+          'period', period,
+          'amount', COALESCE(amount, 0),
+          'subscriptionCount', COALESCE(subscription_count, 0)
+        ) ORDER BY year DESC, quarter DESC
+      )
+      FROM quarterly_payment_data
+    ),
+    'yearly', (
+      SELECT json_agg(
+        json_build_object(
+          'year', year,
+          'period', period,
+          'amount', COALESCE(amount, 0),
+          'subscriptionCount', COALESCE(subscription_count, 0)
+        ) ORDER BY year DESC
+      )
+      FROM yearly_payment_data
+    ),
+    'currency', p_target_currency,
+    'timestamp', NOW(),
+    'cacheVersion', '4.0'
+  ) INTO result;
+  
+  RETURN result;
+END;
+$$;
+
+-- 函数特点:
+-- 1. 基于真实的payment_history表数据，确保计算准确性
+-- 2. 支持汇率转换，使用get_latest_exchange_rate函数
+-- 3. 提供月度、季度、年度三个维度的费用统计
+-- 4. 使用适当的时间范围过滤，避免性能问题
+-- 5. 返回JSON格式，便于前端解析
+
+-- 使用场景:
+-- - ExpenseReports页面的主要数据源
+-- - Dashboard分析数据的补充
+-- - 与get_category_expense_summary函数配合使用
+
 -- 文档结束标记
-SELECT 'Supabase 数据库架构文档更新完成 - 2025-08-13' as documentation_status;
+SELECT 'Supabase 数据库架构文档更新完成 - 2025-08-19 (包含get_expense_summary_optimized函数恢复记录)' as documentation_status;

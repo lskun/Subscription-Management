@@ -502,15 +502,9 @@ src/
 └── lib/                # 第三方库配置
 
 supabase/
-├── migrations/         # 数据库迁移文件
-├── functions/          # Edge Functions
-└── config.toml         # Supabase配置
+├── migrations/         # 数据库schema迁移文件
+└── functions/          # Edge Functions
 
-server/                 # 传统后端服务（向后兼容）
-├── controllers/        # 控制器
-├── services/           # 业务逻辑
-├── db/                 # 数据库相关
-└── utils/              # 工具函数
 ```
 
 ### 开发规范
