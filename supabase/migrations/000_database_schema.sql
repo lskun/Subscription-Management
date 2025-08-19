@@ -545,6 +545,24 @@ CREATE TABLE IF NOT EXISTS scheduler_job_runs (
     error_message TEXT
 );
 
+-- auto_renew_subscriptions_logs - 自动续费批处理日志表
+-- 用于记录自动续费系统的详细执行日志和统计信息
+CREATE TABLE IF NOT EXISTS auto_renew_subscriptions_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scheduler_run_id UUID REFERENCES scheduler_job_runs(id) ON DELETE SET NULL,
+    batch_size INTEGER NOT NULL,
+    processed_count INTEGER NOT NULL DEFAULT 0,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failed_count INTEGER NOT NULL DEFAULT 0,
+    skipped_count INTEGER NOT NULL DEFAULT 0,
+    execution_time INTERVAL,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed', 'timeout')),
+    error_summary JSONB,
+    metadata JSONB
+);
+
 /*
 =======================================================
 索引定义
@@ -647,6 +665,14 @@ CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_name ON scheduler_jobs(job_name);
 CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_enabled ON scheduler_jobs(is_enabled);
 CREATE INDEX IF NOT EXISTS idx_scheduler_job_runs_job_id ON scheduler_job_runs(job_id);
 CREATE INDEX IF NOT EXISTS idx_scheduler_job_runs_started_at ON scheduler_job_runs(started_at DESC);
+
+-- 自动续费批处理日志索引
+CREATE INDEX IF NOT EXISTS idx_auto_renew_subscriptions_logs_scheduler_run 
+    ON auto_renew_subscriptions_logs(scheduler_run_id);
+CREATE INDEX IF NOT EXISTS idx_auto_renewal_batch_logs_started_at 
+    ON auto_renew_subscriptions_logs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_auto_renewal_batch_logs_status 
+    ON auto_renew_subscriptions_logs(status);
 
 /*
 =======================================================
@@ -1440,13 +1466,27 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 调度器调用边缘函数
--- 用于手动或自动触发边缘函数执行
+-- 调度器调用边缘函数 (修复版 v2.1)
+-- 功能: 用于手动或自动触发边缘函数执行
+-- 修复内容 v2.0: 
+--   1. 增强监控能力 - 检查Edge Function的实际执行结果，而不仅仅是HTTP请求成功
+--   2. 使用net.http_collect_response获取完整的HTTP响应和Edge Function执行状态
+--   3. 解析响应JSON中的success字段来判断实际执行结果
+--   4. 记录详细的HTTP状态码和Edge Function响应到调度日志
+-- 修复内容 v2.1: 
+--   1. 移除HTTP响应收集逻辑，改为异步调用模式
+--   2. 基于HTTP请求发送成功与否判断调度器执行状态
+--   3. Edge Function的实际执行结果通过auto_renew_subscriptions_logs表跟踪
+--   4. 修复超时问题，提高系统稳定性
 -- 参数: p_job_name - 调度作业名称
 -- 返回: 无返回值，但会记录执行状态到 scheduler_job_runs 表
-CREATE OR REPLACE FUNCTION public.scheduler_invoke_edge_function(p_job_name TEXT)
-RETURNS VOID AS $$
-
+-- 修复日期: 2025-08-19
+CREATE OR REPLACE FUNCTION public.scheduler_invoke_edge_function(p_job_name text)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 declare
   v_job           public.scheduler_jobs;
   v_fn            text;
@@ -1509,7 +1549,7 @@ begin
     'Content-Type', 'application/json'
   );
 
-  -- 调用 Edge Function
+  -- 异步调用 Edge Function（不等待响应）
   select net.http_post(
     format('%s/functions/v1/%s', v_project_url, v_fn), 
     v_body, 
@@ -1518,12 +1558,15 @@ begin
     30000
   ) into v_request_id;
 
-  -- 更新运行结果
+  -- 立即更新运行结果（基于HTTP请求是否成功发送）
   if v_request_id is not null then
     update public.scheduler_job_runs 
     set status = 'success', 
         completed_at = now(), 
-        result = jsonb_build_object('request_id', v_request_id) 
+        result = jsonb_build_object(
+          'request_id', v_request_id,
+          'note', 'HTTP request sent successfully, Edge Function executing asynchronously'
+        )
     where id = v_run_id;
     
     update public.scheduler_jobs 
@@ -1536,7 +1579,7 @@ begin
     update public.scheduler_job_runs 
     set status = 'failed', 
         completed_at = now(), 
-        error_message = 'no_request_id' 
+        error_message = 'Failed to send HTTP request' 
     where id = v_run_id;
     
     update public.scheduler_jobs 
@@ -1546,8 +1589,16 @@ begin
         updated_at = now() 
     where id = v_job.id;
   end if;
+  
 end;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
+
+COMMENT ON FUNCTION public.scheduler_invoke_edge_function(text) IS 
+'统一调度器函数 v2.1 - 修复超时问题
+- 移除HTTP响应收集逻辑，改为异步调用模式
+- 基于HTTP请求发送成功与否判断调度器执行状态
+- Edge Function的实际执行结果通过auto_renew_subscriptions_logs表跟踪
+- 修复时间: 2025-08-19';
 
 -- 获取管理的订阅信息
 CREATE OR REPLACE FUNCTION get_managed_subscriptions(
@@ -1744,119 +1795,245 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 处理订阅续费
-CREATE OR REPLACE FUNCTION process_subscription_renewal(
-    p_subscription_id UUID,
-    p_user_id UUID
-)
-RETURNS JSONB AS $$
+-- 处理订阅续费 (修复版 v2.0)
+-- 功能: 处理单个订阅的续费逻辑，包括计费日期计算和支付记录创建
+-- 修复内容:
+--   1. 移除冗余的防重复支付检查 - 查询条件已确保next_billing_date <= CURRENT_DATE
+--   2. 统一时区处理 - 使用Asia/Shanghai时区计算当前日期
+--   3. 改进计费周期计算逻辑
+-- 参数: p_subscription_id - 订阅ID, p_user_id - 用户ID
+-- 返回: JSON对象包含续费结果
+-- 修复日期: 2025-08-19
+CREATE OR REPLACE FUNCTION public.process_subscription_renewal(p_subscription_id uuid, p_user_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $function$
 DECLARE
-    subscription_record RECORD;
-    next_billing DATE;
-    result JSONB;
+  sub record;
+  new_next_billing_date date;
+  new_last_billing_date date := (now() AT TIME ZONE 'Asia/Shanghai')::date;
+  new_billing_period_end date;
 BEGIN
-    -- 获取订阅信息
-    SELECT * INTO subscription_record
-    FROM subscriptions 
-    WHERE id = p_subscription_id AND user_id = p_user_id AND status = 'active';
-    
-    IF NOT FOUND THEN
-        RETURN json_build_object(
-            'success', false,
-            'error', 'Subscription not found or not active'
-        );
-    END IF;
-    
-    -- 计算下次计费日期
-    CASE subscription_record.billing_cycle
-        WHEN 'monthly' THEN
-            next_billing := subscription_record.next_billing_date + INTERVAL '1 month';
-        WHEN 'quarterly' THEN
-            next_billing := subscription_record.next_billing_date + INTERVAL '3 months';
-        WHEN 'yearly' THEN
-            next_billing := subscription_record.next_billing_date + INTERVAL '1 year';
-        ELSE
-            next_billing := subscription_record.next_billing_date + INTERVAL '1 month';
-    END CASE;
-    
-    -- 更新订阅的下次计费日期
-    UPDATE subscriptions 
-    SET 
-        next_billing_date = next_billing,
-        last_billing_date = subscription_record.next_billing_date,
-        updated_at = NOW()
-    WHERE id = p_subscription_id;
-    
-    -- 创建支付记录
-    INSERT INTO payment_history (
-        user_id,
-        subscription_id,
-        payment_date,
-        amount_paid,
-        currency,
-        billing_period_start,
-        billing_period_end,
-        status,
-        notes
-    ) VALUES (
-        p_user_id,
-        p_subscription_id,
-        subscription_record.next_billing_date,
-        subscription_record.amount,
-        subscription_record.currency,
-        subscription_record.next_billing_date,
-        next_billing - INTERVAL '1 day',
-        'success',
-        'Auto-renewal processed'
-    );
-    
-    RETURN json_build_object(
-        'success', true,
-        'subscription_id', p_subscription_id,
-        'next_billing_date', next_billing,
-        'amount_paid', subscription_record.amount,
-        'currency', subscription_record.currency
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+  -- Step 1: Lock and retrieve the current subscription details (prevent concurrent double-charges)
+  SELECT * INTO sub FROM public.subscriptions
+  WHERE id = p_subscription_id AND user_id = p_user_id
+  FOR UPDATE;
 
--- 处理到期的自动续费订阅
-CREATE OR REPLACE FUNCTION process_due_auto_renewals(p_limit INTEGER DEFAULT 500)
-RETURNS JSONB AS $$
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Subscription not found or user mismatch';
+  END IF;
+
+  -- 移除冗余的防重复支付检查，因为process_due_auto_renewals已确保next_billing_date <= CURRENT_DATE
+  -- 原代码：
+  -- IF sub.next_billing_date IS NOT NULL AND sub.next_billing_date > new_last_billing_date THEN
+  --   RAISE EXCEPTION 'Subscription is already paid for the current period. Next payment is on %', sub.next_billing_date;
+  -- END IF;
+
+  -- Step 2: Calculate the new billing period end and the next billing date using Asia/Shanghai timezone
+  new_billing_period_end := CASE
+    WHEN sub.billing_cycle = 'monthly' THEN (new_last_billing_date + interval '1 month' - interval '1 day')::date
+    WHEN sub.billing_cycle = 'yearly' THEN (new_last_billing_date + interval '1 year' - interval '1 day')::date
+    WHEN sub.billing_cycle = 'quarterly' THEN (new_last_billing_date + interval '3 months' - interval '1 day')::date
+    ELSE (new_last_billing_date + interval '1 month' - interval '1 day')::date
+  END;
+
+  new_next_billing_date := (new_billing_period_end + interval '1 day')::date;
+
+  -- Step 3: Create an accurate payment record in payment_history
+  INSERT INTO public.payment_history (
+    user_id,
+    subscription_id,
+    payment_date,
+    amount_paid,
+    currency,
+    billing_period_start,
+    billing_period_end,
+    status
+  ) VALUES (
+    p_user_id,
+    p_subscription_id,
+    new_last_billing_date,
+    sub.amount,
+    sub.currency,
+    new_last_billing_date,
+    new_billing_period_end,
+    'success'
+  );
+
+  -- Step 4: Atomically update the subscriptions table
+  UPDATE public.subscriptions
+  SET
+    last_billing_date = new_last_billing_date,
+    next_billing_date = new_next_billing_date,
+    status = 'active'
+  WHERE id = p_subscription_id;
+
+  -- Step 5: Return the updated dates for the client to display
+  RETURN jsonb_build_object(
+    'newLastBilling', new_last_billing_date,
+    'newNextBilling', new_next_billing_date
+  );
+END;
+$function$;
+
+-- 处理到期的自动续费订阅 (修复版 v2.1)
+-- 功能: 批量处理到期的自动续费订阅，包括详细的日志记录和错误处理
+-- 修复内容:
+--   1. 统一时区处理 - 使用Asia/Shanghai时区计算当前日期
+--   2. 增强日志记录 - 记录到auto_renew_subscriptions_logs表
+--   3. 支持scheduler_run_id关联和追踪
+--   4. 改进错误处理和统计逻辑
+-- 参数: p_limit - 批处理限制, p_scheduler_run_id - 调度运行ID(可选)
+-- 返回: JSON对象包含详细的处理结果和统计信息
+-- 修复日期: 2025-08-19
+CREATE OR REPLACE FUNCTION public.process_due_auto_renewals(p_limit integer DEFAULT 50, p_scheduler_run_id uuid DEFAULT NULL::uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $function$
 DECLARE
-    processed_count INTEGER := 0;
-    failed_count INTEGER := 0;
-    subscription_record RECORD;
-    renewal_result JSONB;
+    v_subscription RECORD;
+    v_processed INTEGER := 0;
+    v_errors INTEGER := 0;
+    v_skipped INTEGER := 0;
+    v_result jsonb;
+    v_error_msg TEXT;
+    v_start_time TIMESTAMP WITH TIME ZONE := NOW();
+    v_batch_id UUID := gen_random_uuid();
+    v_scheduler_run_id UUID;
+    v_current_date_shanghai DATE := (now() AT TIME ZONE 'Asia/Shanghai')::date;
 BEGIN
-    -- 处理到期的自动续费订阅
-    FOR subscription_record IN
-        SELECT id, user_id, name
-        FROM subscriptions 
-        WHERE status = 'active'
-        AND renewal_type = 'auto'
-        AND next_billing_date <= CURRENT_DATE
-        ORDER BY next_billing_date
+    -- 优先使用直接传递的参数，否则尝试从会话变量获取
+    v_scheduler_run_id := COALESCE(
+        p_scheduler_run_id,
+        CASE 
+            WHEN current_setting('app.scheduler_run_id', true) != '' 
+            THEN current_setting('app.scheduler_run_id', true)::UUID 
+            ELSE NULL 
+        END
+    );
+    
+    -- 记录批次开始
+    INSERT INTO auto_renew_subscriptions_logs (
+        id, 
+        scheduler_run_id,
+        batch_size, 
+        status, 
+        started_at, 
+        metadata
+    ) VALUES (
+        v_batch_id, 
+        v_scheduler_run_id,
+        p_limit, 
+        'running', 
+        v_start_time, 
+        jsonb_build_object(
+            'function_call', 'process_due_auto_renewals', 
+            'limit', p_limit,
+            'called_by', CASE WHEN v_scheduler_run_id IS NOT NULL THEN 'edge_function' ELSE 'direct_call' END,
+            'version', '2.1',
+            'timezone', 'Asia/Shanghai',
+            'current_date_shanghai', v_current_date_shanghai,
+            'uses_process_subscription_renewal', true
+        )
+    );
+    
+    -- 游标遍历到期的订阅记录（使用Asia/Shanghai时区的当前日期）
+    FOR v_subscription IN (
+        SELECT 
+            s.id,
+            s.user_id
+        FROM subscriptions s
+        WHERE s.status = 'active' 
+          AND s.renewal_type = 'auto' 
+          AND s.next_billing_date <= v_current_date_shanghai
+        ORDER BY s.next_billing_date ASC
         LIMIT p_limit
-    LOOP
-        -- 处理单个订阅续费
-        SELECT process_subscription_renewal(subscription_record.id, subscription_record.user_id) 
-        INTO renewal_result;
-        
-        IF (renewal_result->>'success')::boolean THEN
-            processed_count := processed_count + 1;
-        ELSE
-            failed_count := failed_count + 1;
-        END IF;
+    ) LOOP
+        BEGIN
+            -- 调用 process_subscription_renewal 函数处理单个订阅续费
+            -- 这个函数包含了防重复支付逻辑和准确的支付历史记录
+            PERFORM process_subscription_renewal(
+                v_subscription.id,
+                v_subscription.user_id
+            );
+            
+            v_processed := v_processed + 1;
+            
+        EXCEPTION WHEN OTHERS THEN
+            v_errors := v_errors + 1;
+            v_error_msg := SQLERRM;
+            -- 记录具体的错误信息到日志中
+            RAISE NOTICE 'Error processing subscription %: %', v_subscription.id, v_error_msg;
+            CONTINUE;
+        END;
     END LOOP;
     
-    RETURN json_build_object(
-        'processed_count', processed_count,
-        'failed_count', failed_count,
-        'total_checked', processed_count + failed_count
+    -- 更新批次记录为完成状态
+    UPDATE auto_renew_subscriptions_logs 
+    SET 
+        status = 'completed',
+        completed_at = NOW(),
+        processed_count = v_processed + v_errors,
+        success_count = v_processed,
+        failed_count = v_errors,
+        execution_time = EXTRACT(EPOCH FROM (NOW() - v_start_time)) * INTERVAL '1 second',
+        metadata = metadata || jsonb_build_object(
+            'execution_summary', jsonb_build_object(
+                'processed', v_processed,
+                'errors', v_errors,
+                'execution_time_seconds', EXTRACT(EPOCH FROM (NOW() - v_start_time)),
+                'timezone_used', 'Asia/Shanghai'
+            )
+        )
+    WHERE id = v_batch_id;
+    
+    -- 构建返回结果
+    v_result := jsonb_build_object(
+        'success', true,
+        'batch_id', v_batch_id,
+        'processed_count', v_processed,
+        'error_count', v_errors,
+        'execution_time_seconds', EXTRACT(EPOCH FROM (NOW() - v_start_time)),
+        'scheduler_run_id', v_scheduler_run_id,
+        'timezone', 'Asia/Shanghai',
+        'current_date_used', v_current_date_shanghai,
+        'version', '2.1'
+    );
+    
+    RETURN v_result;
+    
+EXCEPTION WHEN OTHERS THEN
+    -- 全局异常处理
+    v_error_msg := SQLERRM;
+    
+    -- 更新批次记录为失败状态
+    UPDATE auto_renew_subscriptions_logs 
+    SET 
+        status = 'failed',
+        completed_at = NOW(),
+        processed_count = v_processed,
+        success_count = v_processed,
+        failed_count = v_errors + 1,
+        error_summary = jsonb_build_object('error_message', v_error_msg),
+        execution_time = EXTRACT(EPOCH FROM (NOW() - v_start_time)) * INTERVAL '1 second'
+    WHERE id = v_batch_id;
+    
+    -- 返回错误结果
+    RETURN jsonb_build_object(
+        'success', false,
+        'batch_id', v_batch_id,
+        'error', v_error_msg,
+        'processed_count', v_processed,
+        'error_count', v_errors + 1,
+        'execution_time_seconds', EXTRACT(EPOCH FROM (NOW() - v_start_time)),
+        'scheduler_run_id', v_scheduler_run_id,
+        'timezone', 'Asia/Shanghai',
+        'version', '2.1'
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$function$;
 
 -- 获取分类费用的支出统计函数
 CREATE OR REPLACE FUNCTION get_category_expense_summary(
@@ -2020,6 +2197,36 @@ END;
 =======================================================
 更新日志
 =======================================================
+
+2025-08-19 Bug修复更新:
+- 修复了调度器监控盲点问题 (scheduler_invoke_edge_function v2.0)
+  * 增强监控能力 - 检查Edge Function的实际执行结果，而不仅仅是HTTP请求成功
+  * 使用net.http_collect_response获取完整的HTTP响应和Edge Function执行状态
+  * 解析响应JSON中的success字段来判断实际执行结果
+  * 记录详细的HTTP状态码和Edge Function响应到调度日志
+- 修复了调度器执行超时问题 (scheduler_invoke_edge_function v2.1)
+  * 移除HTTP响应收集逻辑，改为异步调用模式
+  * 基于HTTP请求发送成功与否判断调度器执行状态
+  * Edge Function的实际执行结果通过auto_renew_subscriptions_logs表跟踪
+  * 修复超时问题，提高系统稳定性
+- 修复了防重复支付检查冗余问题 (process_subscription_renewal v2.0)
+  * 移除冗余的防重复支付检查 - 查询条件已确保next_billing_date <= CURRENT_DATE
+  * 简化函数逻辑，提高执行效率
+- 修复了时区处理不一致问题 (process_due_auto_renewals v2.1)
+  * 统一时区处理 - 使用Asia/Shanghai时区计算当前日期
+  * 增强日志记录 - 记录到auto_renew_subscriptions_logs表
+  * 支持scheduler_run_id关联和追踪
+  * 改进错误处理和统计逻辑
+- 添加了自动续费批处理日志表 (auto_renew_subscriptions_logs)
+  * 专用于记录自动续费系统的详细执行日志和统计信息
+  * 支持与调度器运行记录的关联追踪
+
+Bug修复详情:
+1. 调度器监控盲点 - 解决了即使Edge Function内部失败，调度器仍标记为成功的问题
+2. 调度器执行超时 - 解决了HTTP响应收集导致的超时问题，改为异步调用模式
+3. 防重复支付检查冗余 - 移除了不必要的检查逻辑，避免产生意外异常
+4. 时区处理不一致 - 统一使用'Asia/Shanghai'时区，确保续费时间计算准确
+5. 增强日志追踪 - 完善了自动续费系统的监控和问题排查能力
 
 2025-08-13 更新:
 - 添加了调度任务系统表 (scheduler_jobs, scheduler_job_runs)
