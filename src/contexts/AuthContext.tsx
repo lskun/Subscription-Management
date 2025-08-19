@@ -109,17 +109,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
             setLoading(false)
             SessionService.startSessionManagement()
             
-            // 用户登录后异步加载汇率到settingsStore缓存
+            // 用户登录后按需加载汇率到settingsStore缓存（仅在缓存缺失或过期时）
             setTimeout(async () => {
               try {
-                console.log('🔄 用户登录成功，开始异步加载汇率到缓存...')
+                console.log('🔄 用户登录成功，检查汇率缓存状态...')
                 const store = useSettingsStore.getState()
-                await store.fetchExchangeRates()
-                console.log('✅ 汇率数据已成功加载到settingsStore缓存')
+                await store.fetchExchangeRatesIfNeeded() // 使用懒加载方法，只在需要时获取
+                console.log('✅ 汇率缓存检查完成')
               } catch (error) {
-                console.error('⚠️ 汇率加载失败，将继续使用默认汇率:', error)
+                console.error('⚠️ 汇率缓存检查失败，将继续使用默认汇率:', error)
               }
-            }, 800) // 800ms后开始加载汇率，给用户状态更新时间
+            }, 800) // 800ms后开始检查汇率缓存，给用户状态更新时间
 
             // 检查是否是新用户，如果是则初始化（防止重复初始化）
             if (session?.user && !initializingUsers.has(session.user.id)) {

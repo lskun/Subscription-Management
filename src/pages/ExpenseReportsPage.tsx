@@ -75,6 +75,7 @@ export function ExpenseReportsPage() {
     monthlyExpenses,
     yearlyExpenses,
     categoryExpenses,
+    monthlyCategoryExpenses,
     expenseInfo: rawExpenseInfoData,
     isLoading,
     error,
@@ -92,8 +93,16 @@ export function ExpenseReportsPage() {
     autoFetch: true
   })
 
-  // 创建空的月度分类费用数据，因为相关API已被移除
-  const monthlyCategoryExpenses: any[] = []
+  // 转换月度分类费用数据格式以匹配ExpenseTrendChart组件期望
+  const adaptedMonthlyCategoryExpenses = useMemo(() => {
+    return monthlyCategoryExpenses.map(expense => ({
+      monthKey: expense.monthKey,
+      month: expense.month,
+      year: expense.year,
+      categories: expense.categories || {},
+      total: expense.total || 0
+    }))
+  }, [monthlyCategoryExpenses])
 
   // 转换 expenseInfo 数据格式以匹配 ExpenseInfoCards 组件的期望
   const expenseInfoData = useMemo(() => {
@@ -319,7 +328,7 @@ export function ExpenseReportsPage() {
               <div className="grid gap-4 grid-cols-1 xl:grid-cols-2">
                 <ExpenseTrendChart
                   data={adaptedMonthlyExpenses}
-                  categoryData={monthlyCategoryExpenses}
+                  categoryData={adaptedMonthlyCategoryExpenses}
                   currency={userCurrency as string}
                 />
                 {isLoadingCategoryExpenses ? (

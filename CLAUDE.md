@@ -204,6 +204,35 @@ supabase/
 - 完整用户工作流测试
 - 数据库状态验证
 - 位于 `tests/e2e/`
+- 需要登录验证的e2e ts通用代码示例如下：
+
+```javascript
+if (!isLoggedIn) {
+      console.log('用户未登录，开始登录流程...')
+      // 先点击打开登录模态框的按钮
+      const openModalButton = page.locator('button:has-text("Sign In"), button:has-text("Get Started Free")').first()
+      await expect(openModalButton).toBeVisible({ timeout: 10000 })
+      await openModalButton.click()
+      
+      // 等待模态框出现
+      await page.waitForSelector('[role="dialog"]', { timeout: 10000 })
+      console.log('✅ 登录模态框已打开')
+      
+      // 填写邮箱
+      const emailInput = page.locator('#login-email')
+      await expect(emailInput).toBeVisible({ timeout: 10000 })
+      await emailInput.fill('191682304@qq.com')
+      
+      // 填写密码
+      const passwordInput = page.locator('#login-password')
+      await expect(passwordInput).toBeVisible({ timeout: 10000 })
+      await passwordInput.fill('123456')
+      
+      // 点击登录按钮
+      const signInButton = page.locator('button:has-text("Sign In")').nth(1) // 第二个Sign In按钮是表单提交按钮
+      await expect(signInButton).toBeVisible({ timeout: 10000 })
+      await signInButton.click()
+```
 
 #### 测试用户账户
 E2E测试需要认证时，使用以下测试账户：
@@ -255,6 +284,7 @@ E2E测试需要认证时，使用以下测试账户：
 - 前端页面BUG修复完成后，使用playwright mcp进行测试验证
 - 每次Playwright测试前，检查开发环境是否启动：`npm run dev`，如果已经启动，则不要重复启动
 - 测试后手动关闭开发环境：`npm run stop`
+- 运行完`npm run test`记得退出,playwright mcp：`playwright mcp stop`  
 
 ## 注意事项
 - 提交前必须运行 lint 和测试

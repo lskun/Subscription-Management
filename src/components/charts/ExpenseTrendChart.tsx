@@ -157,6 +157,7 @@ export function ExpenseTrendChart({ data, categoryData, currency, className }: E
             left: 5,
             bottom: 30
           }}
+          barCategoryGap="20%"
         >
           <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
           <XAxis
@@ -223,6 +224,8 @@ export function ExpenseTrendChart({ data, categoryData, currency, className }: E
               name={category}
               fill={getCategoryColor(category, index)}
               radius={[2, 2, 0, 0]}
+              minPointSize={2}
+              maxBarSize={50}
             />
           ))}
         </BarChart>

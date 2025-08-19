@@ -5,6 +5,7 @@ import {
   MonthlyExpense,
   YearlyExpense,
   CategoryExpense,
+  MonthlyCategoryExpense,
   ExpenseInfoData
 } from '@/services/expenseReportsEdgeFunctionService'
 
@@ -27,6 +28,7 @@ export interface UseExpenseReportsDataReturn {
   yearlyExpenses: YearlyExpense[]
   categoryExpenses: CategoryExpense[]
   yearlyCategoryExpenses: CategoryExpense[]
+  monthlyCategoryExpenses: MonthlyCategoryExpense[]
   expenseInfo: {
     monthly: ExpenseInfoData[]
     quarterly: ExpenseInfoData[]
@@ -64,6 +66,7 @@ export function useExpenseReportsData(options: UseExpenseReportsDataOptions = {}
   const [yearlyExpenses, setYearlyExpenses] = useState<YearlyExpense[]>([])
   const [categoryExpenses, setCategoryExpenses] = useState<CategoryExpense[]>([])
   const [yearlyCategoryExpenses, setYearlyCategoryExpenses] = useState<CategoryExpense[]>([])
+  const [monthlyCategoryExpenses, setMonthlyCategoryExpenses] = useState<MonthlyCategoryExpense[]>([])
   const [expenseInfo, setExpenseInfo] = useState<{
     monthly: ExpenseInfoData[]
     quarterly: ExpenseInfoData[]
@@ -125,6 +128,9 @@ export function useExpenseReportsData(options: UseExpenseReportsDataOptions = {}
           if (response.yearlyCategoryExpenses) {
             setYearlyCategoryExpenses(response.yearlyCategoryExpenses)
           }
+          if (response.monthlyCategoryExpenses) {
+            setMonthlyCategoryExpenses(response.monthlyCategoryExpenses)
+          }
         }
 
         if (includeExpenseInfo && response.expenseInfo) {
@@ -181,6 +187,7 @@ export function useExpenseReportsData(options: UseExpenseReportsDataOptions = {}
     yearlyExpenses,
     categoryExpenses,
     yearlyCategoryExpenses,
+    monthlyCategoryExpenses,
     expenseInfo,
     
     // 状态

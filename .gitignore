@@ -1,10 +1,11 @@
 node_modules
 dist
 
-.kiro
-.trae
-.cursor
-.vscode
+.kiro/*
+.trae/*
+.cursor/*
+.vscode/*
+.specstory/*
 
 /tests
 /test-results

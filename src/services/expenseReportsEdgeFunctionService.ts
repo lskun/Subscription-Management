@@ -21,6 +21,14 @@ export interface CategoryExpense {
   subscriptionCount: number
 }
 
+export interface MonthlyCategoryExpense {
+  month: string
+  monthKey: string
+  year: number
+  categories: Record<string, number>
+  total: number
+}
+
 export interface ExpenseInfoData {
   period: string
   amount: number
@@ -45,6 +53,7 @@ export interface ExpenseReportsResponse {
   yearlyExpenses?: YearlyExpense[]
   categoryExpenses?: CategoryExpense[]
   yearlyCategoryExpenses?: CategoryExpense[]
+  monthlyCategoryExpenses?: MonthlyCategoryExpense[]
   expenseInfo?: {
     monthly: ExpenseInfoData[]
     quarterly: ExpenseInfoData[]
