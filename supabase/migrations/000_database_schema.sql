@@ -1562,7 +1562,7 @@ begin
   if v_request_id is not null then
     update public.scheduler_job_runs 
     set status = 'success', 
-        completed_at = now(), 
+        completed_at = (now() AT TIME ZONE 'Asia/Shanghai'), 
         result = jsonb_build_object(
           'request_id', v_request_id,
           'note', 'HTTP request sent successfully, Edge Function executing asynchronously'
@@ -1570,23 +1570,23 @@ begin
     where id = v_run_id;
     
     update public.scheduler_jobs 
-    set last_run_at = now(), 
+    set last_run_at = (now() AT TIME ZONE 'Asia/Shanghai'), 
         last_status = 'success', 
         failed_attempts = 0, 
-        updated_at = now() 
+        updated_at = (now() AT TIME ZONE 'Asia/Shanghai') 
     where id = v_job.id;
   else
     update public.scheduler_job_runs 
     set status = 'failed', 
-        completed_at = now(), 
+        completed_at = (now() AT TIME ZONE 'Asia/Shanghai'), 
         error_message = 'Failed to send HTTP request' 
     where id = v_run_id;
     
     update public.scheduler_jobs 
-    set last_run_at = now(), 
+    set last_run_at = (now() AT TIME ZONE 'Asia/Shanghai'), 
         last_status = 'failed', 
         failed_attempts = coalesce(failed_attempts, 0) + 1, 
-        updated_at = now() 
+        updated_at = (now() AT TIME ZONE 'Asia/Shanghai') 
     where id = v_job.id;
   end if;
   
@@ -1594,10 +1594,11 @@ end;
 $$;
 
 COMMENT ON FUNCTION public.scheduler_invoke_edge_function(text) IS 
-'统一调度器函数 v2.1 - 修复超时问题
+'统一调度器函数 v2.2 - 修复时区问题
 - 移除HTTP响应收集逻辑，改为异步调用模式
 - 基于HTTP请求发送成功与否判断调度器执行状态
 - Edge Function的实际执行结果通过auto_renew_subscriptions_logs表跟踪
+- 所有时间戳使用上海时区 (Asia/Shanghai)
 - 修复时间: 2025-08-19';
 
 -- 获取管理的订阅信息

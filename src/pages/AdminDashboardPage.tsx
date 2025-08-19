@@ -152,6 +152,7 @@ export function AdminDashboardPage() {
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('zh-CN', {
+      timeZone: 'Asia/Shanghai',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
