@@ -1440,20 +1440,113 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE FUNCTION scheduler_invoke_edge_function(p_job_name TEXT)
+-- 调度器调用边缘函数
+-- 用于手动或自动触发边缘函数执行
+-- 参数: p_job_name - 调度作业名称
+-- 返回: 无返回值，但会记录执行状态到 scheduler_job_runs 表
+CREATE OR REPLACE FUNCTION public.scheduler_invoke_edge_function(p_job_name TEXT)
 RETURNS VOID AS $$
-BEGIN
-    -- 这个函数用于手动触发边缘函数
-    -- 实际实现需要调用相应的边缘函数
-    INSERT INTO scheduler_job_runs (job_id, status, started_at, completed_at)
-    SELECT 
-        id, 
-        'success', 
-        NOW(), 
-        NOW()
-    FROM scheduler_jobs 
-    WHERE job_name = p_job_name;
-END;
+
+declare
+  v_job           public.scheduler_jobs;
+  v_fn            text;
+  v_body          jsonb;
+  v_headers       jsonb;
+  v_run_id        uuid;
+  v_project_url   text;
+  v_service_key   text;
+  v_request_id    bigint;
+begin
+  -- 查找调度作业配置
+  select * into v_job from public.scheduler_jobs where job_name = p_job_name;
+  if not found then 
+    raise exception 'scheduler job % not found', p_job_name; 
+  end if;
+
+  -- 记录运行开始
+  insert into public.scheduler_job_runs(job_id, status) 
+  values (v_job.id, 'partial') 
+  returning id into v_run_id;
+
+  -- 验证作业类型
+  if v_job.job_type <> 'edge_function' then 
+    raise exception 'unsupported job_type: %', v_job.job_type; 
+  end if;
+
+  -- 根据 job_name 动态确定 Edge Function 名称
+  v_fn := coalesce(
+    (v_job.payload->>'function'), 
+    CASE p_job_name
+      WHEN 'auto_renew_subscriptions' THEN 'auto-renew-subscriptions'
+      WHEN 'exchange_rates_update' THEN 'update-exchange-rates'
+      ELSE p_job_name  -- 默认使用 job_name 作为函数名
+    END
+  );
+  
+  -- 构建请求体，包含调度运行 ID
+  v_body := coalesce(
+    v_job.payload->'body', 
+    jsonb_build_object('executionType', 'scheduled')
+  );
+  
+  -- 添加调度运行 ID 到请求体
+  v_body := v_body || jsonb_build_object('scheduler_run_id', v_run_id);
+
+  -- 获取项目配置
+  select value into v_project_url from admin.secrets where name = 'project_url';
+  if v_project_url is null then 
+    raise exception 'project_url not configured'; 
+  end if;
+
+  select value into v_service_key from admin.secrets where name = 'service_role_key';
+  if v_service_key is null then 
+    raise exception 'service_role_key not configured'; 
+  end if;
+
+  -- 构建请求头
+  v_headers := jsonb_build_object(
+    'Authorization', 'Bearer ' || v_service_key,
+    'Content-Type', 'application/json'
+  );
+
+  -- 调用 Edge Function
+  select net.http_post(
+    format('%s/functions/v1/%s', v_project_url, v_fn), 
+    v_body, 
+    null, 
+    v_headers, 
+    30000
+  ) into v_request_id;
+
+  -- 更新运行结果
+  if v_request_id is not null then
+    update public.scheduler_job_runs 
+    set status = 'success', 
+        completed_at = now(), 
+        result = jsonb_build_object('request_id', v_request_id) 
+    where id = v_run_id;
+    
+    update public.scheduler_jobs 
+    set last_run_at = now(), 
+        last_status = 'success', 
+        failed_attempts = 0, 
+        updated_at = now() 
+    where id = v_job.id;
+  else
+    update public.scheduler_job_runs 
+    set status = 'failed', 
+        completed_at = now(), 
+        error_message = 'no_request_id' 
+    where id = v_run_id;
+    
+    update public.scheduler_jobs 
+    set last_run_at = now(), 
+        last_status = 'failed', 
+        failed_attempts = coalesce(failed_attempts, 0) + 1, 
+        updated_at = now() 
+    where id = v_job.id;
+  end if;
+end;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 获取管理的订阅信息

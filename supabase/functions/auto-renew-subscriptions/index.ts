@@ -1,77 +1,99 @@
-// @ts-ignore - Deno runtime environment
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-// @ts-ignore - Deno runtime environment
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
-
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
-
+/**
+ * 自动续费订阅处理 Edge Function
+ * 处理到期的自动续费订阅，创建支付记录并更新下次计费日期
+ */
+Deno.serve(async (req: Request) => {
   try {
-    const url = new URL(req.url)
-    const limit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 1000))
-
-    // @ts-ignore - Deno runtime environment
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-    // @ts-ignore
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    const supabase = createClient(supabaseUrl, serviceKey)
-
-    // 查询到期的自动续费订阅（按天判断）
-    const today = new Date()
-    const todayStr = today.toISOString().split('T')[0]
-
-    const { data: dueSubs, error: queryError } = await supabase
-      .from('subscriptions')
-      .select('id,user_id,renewal_type,status,next_billing_date')
-      .eq('renewal_type', 'auto')
-      .eq('status', 'active')
-      .lte('next_billing_date', todayStr)
-      .order('next_billing_date', { ascending: true })
-      .limit(limit)
-
-    if (queryError) {
-      throw new Error(`Failed to query due subscriptions: ${queryError.message}`)
-    }
-
-    let processed = 0
-    let errors = 0
-    const results: Array<{ id: string, ok: boolean, error?: string }> = []
-
-    for (const sub of dueSubs || []) {
+    // 获取环境变量
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
+    // 创建 Supabase 客户端
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    
+    // 从请求体中获取参数
+    const { scheduler_run_id: schedulerRunId, limit = 500 } = await req.json().catch(() => ({}));
+    
+    console.log('开始处理自动续费订阅', { schedulerRunId, limit });
+    
+    let batchResult;
+    let processedCount = 0;
+    let totalErrors = 0;
+    
+    // 批量处理循环
+    do {
       try {
-        const { data, error } = await supabase
-          .rpc('process_subscription_renewal', { p_subscription_id: sub.id, p_user_id: sub.user_id })
-
+        // 调用数据库函数处理批次，直接传递 scheduler_run_id 参数
+        const { data, error } = await supabase.rpc('process_due_auto_renewals', {
+          p_limit: limit,
+          p_scheduler_run_id: schedulerRunId
+        });
+        
         if (error) {
-          errors += 1
-          results.push({ id: sub.id, ok: false, error: error.message })
-        } else {
-          processed += 1
-          results.push({ id: sub.id, ok: true })
+          console.error('批处理函数调用失败:', error);
+          throw new Error(`批处理函数调用失败: ${error.message}`);
         }
-      } catch (e: any) {
-        errors += 1
-        results.push({ id: sub.id, ok: false, error: e?.message || 'unknown error' })
+        
+        batchResult = data;
+        processedCount += batchResult.processed_count || 0;
+        totalErrors += batchResult.error_count || 0;
+        
+        console.log('批次处理完成:', {
+          batchId: batchResult.batch_id,
+          processed: batchResult.processed_count,
+          errors: batchResult.error_count,
+          schedulerRunId: batchResult.scheduler_run_id
+        });
+        
+      } catch (batchError) {
+        console.error('批次处理异常:', batchError);
+        totalErrors++;
+        break;
       }
-    }
-
+      
+    } while (batchResult && batchResult.processed_count > 0);
+    
+    // 返回处理结果
+    const response = {
+      success: true,
+      message: '自动续费处理完成',
+      data: {
+        total_processed: processedCount,
+        total_errors: totalErrors,
+        scheduler_run_id: schedulerRunId,
+        last_batch_id: batchResult?.batch_id
+      }
+    };
+    
+    console.log('自动续费处理完成:', response.data);
+    
+    return new Response(JSON.stringify(response), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Connection': 'keep-alive'
+      }
+    });
+    
+  } catch (error) {
+    console.error('自动续费处理失败:', error);
+    
     return new Response(
-      JSON.stringify({ success: true, processed, errors, count: (dueSubs || []).length, results }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
-    )
-  } catch (e) {
-    return new Response(
-      JSON.stringify({ success: false, error: e instanceof Error ? e.message : 'unknown error' }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
-    )
+      JSON.stringify({
+        success: false,
+        error: error.message || '未知错误',
+        message: '自动续费处理失败'
+      }),
+      {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }
+    );
   }
-})
+});
 
 
