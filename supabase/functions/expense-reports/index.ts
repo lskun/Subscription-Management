@@ -98,10 +98,10 @@ serve(async (req) => {
 
     console.log('数据库函数调用成功，开始处理数据...');
 
-    // 获取月度费用数据 - 修改为最近12个月
+    // 获取月度费用数据 - 合并基础数据和分类数据
     if (includeMonthlyExpenses) {
       try {
-        console.log('处理月度费用数据...');
+        console.log('处理月度费用数据（包含分类信息）...');
         
         // 确定锚点：优先使用monthlyEndDate，否则当前时间
         const anchor = monthlyEndDate ? new Date(monthlyEndDate) : new Date();
@@ -114,24 +114,118 @@ serve(async (req) => {
           monthKeys.push(mk);
         }
         
-        // 从优化数据中提取月度数据
+        // 从优化数据中提取月度基础数据
         const monthlyData = optimizedData?.monthly || [];
         const byMonth: Record<string, any> = {};
         monthlyData.forEach((item: any) => {
           byMonth[item.period] = item;
         });
         
-        // 按月份键顺序构建最近12个月的数据
+        // 获取月度分类数据（如果需要分类信息）
+        const monthCategoryMap: Record<string, Record<string, number>> = {};
+        if (includeCategoryExpenses) {
+          // 查询月度分类数据
+          const { data: monthlyCategoryData, error: monthlyCategoryError } = await supabaseClient
+            .from('payment_history')
+            .select(`
+              payment_date,
+              amount_paid,
+              currency,
+              subscriptions!inner(
+                name,
+                category_id,
+                categories!inner(value, label)
+              )
+            `)
+            .eq('user_id', user.id)
+            .eq('status', 'success')
+            .gte('payment_date', `${monthKeys[0]}-01`)
+            .lte('payment_date', `${monthKeys[monthKeys.length - 1]}-31`);
+
+          if (!monthlyCategoryError && monthlyCategoryData) {
+            // 获取汇率数据
+            const { data: exchangeRates, error: ratesError } = await supabaseClient
+              .from('exchange_rates')
+              .select('date, from_currency, to_currency, rate')
+              .order('date', { ascending: false })
+              .order('updated_at', { ascending: false })
+              .limit(7);
+
+            // 获取最新汇率
+            let latestRates: any[] = [];
+            if (!ratesError && exchangeRates && exchangeRates.length > 0) {
+              const latestDate = exchangeRates[0].date;
+              latestRates = exchangeRates.filter(rate => rate.date === latestDate);
+            }
+
+            // 构建汇率映射表
+            const rateMap: Record<string, number> = {};
+            latestRates.forEach((rate: any) => {
+              rateMap[`${rate.from_currency}_${rate.to_currency}`] = parseFloat(rate.rate);
+            });
+
+            // 初始化月份分类映射
+            monthKeys.forEach(month => {
+              monthCategoryMap[month] = {};
+            });
+
+            // 聚合分类数据
+            monthlyCategoryData.forEach((payment: any) => {
+              const paymentDate = new Date(payment.payment_date);
+              const monthKey = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
+              
+              if (monthCategoryMap[monthKey] && payment.subscriptions?.categories) {
+                const category = payment.subscriptions.categories.value;
+                const amount = parseFloat(payment.amount_paid) || 0;
+                
+                // 汇率转换逻辑
+                let convertedAmount = amount;
+                if (payment.currency !== targetCurrency) {
+                  if (targetCurrency === 'CNY') {
+                    const rateKey = `CNY_${payment.currency}`;
+                    const rate = rateMap[rateKey];
+                    if (rate && rate > 0) {
+                      convertedAmount = amount / rate;
+                    }
+                  } else if (payment.currency === 'CNY') {
+                    const rateKey = `CNY_${targetCurrency}`;
+                    const rate = rateMap[rateKey];
+                    if (rate && rate > 0) {
+                      convertedAmount = amount * rate;
+                    }
+                  } else {
+                    const fromRateKey = `CNY_${payment.currency}`;
+                    const toRateKey = `CNY_${targetCurrency}`;
+                    const fromRate = rateMap[fromRateKey];
+                    const toRate = rateMap[toRateKey];
+                    if (fromRate && toRate && fromRate > 0 && toRate > 0) {
+                      const cnyAmount = amount / fromRate;
+                      convertedAmount = cnyAmount * toRate;
+                    }
+                  }
+                }
+                
+                monthCategoryMap[monthKey][category] = (monthCategoryMap[monthKey][category] || 0) + convertedAmount;
+              }
+            });
+          }
+        }
+        
+        // 构建统一的月度数据（包含基础信息和分类详情）
         const monthlyExpenses = monthKeys.map((mk) => {
           const item = byMonth[mk];
           const year = parseInt(mk.slice(0, 4));
-          const month = parseInt(mk.slice(5, 7));
+          const categories = monthCategoryMap[mk] || {};
+          const categoryTotal = Object.values(categories).reduce((sum, amount) => sum + amount, 0);
+          
           return {
             month: mk,
             year: year,
             total: item ? (item.paymentAmount || item.subscriptionAmount || 0) : 0,
             currency: targetCurrency,
-            activeSubscriptionCount: item ? (item.activeSubscriptions || 0) : 0
+            activeSubscriptionCount: item ? (item.activeSubscriptions || 0) : 0,
+            categories: categories,
+            categoryTotal: categoryTotal
           };
         });
         
@@ -151,7 +245,7 @@ serve(async (req) => {
               amount: cur,
               change: change,
               currency: targetCurrency,
-              paymentCount: r.activeSubscriptionCount || 0
+              paymentCount: byMonth[r.month] ? (byMonth[r.month].paymentCount || 0) : 0
             };
           });
           response.expenseInfo = response.expenseInfo || { monthly: [], quarterly: [], yearly: [] };
@@ -218,7 +312,7 @@ serve(async (req) => {
               amount: cur,
               change: change,
               currency: targetCurrency,
-              paymentCount: r.activeSubscriptionCount || 0
+              paymentCount: byQuarter[`${r.year}-Q${r.quarter}`] ? (byQuarter[`${r.year}-Q${r.quarter}`].paymentCount || 0) : 0
             };
           });
           response.expenseInfo = response.expenseInfo || { monthly: [], quarterly: [], yearly: [] };
@@ -274,7 +368,7 @@ serve(async (req) => {
               amount: cur,
               change: change,
               currency: targetCurrency,
-              paymentCount: r.activeSubscriptionCount || 0
+              paymentCount: byYear[String(r.year)] ? (byYear[String(r.year)].paymentCount || 0) : 0
             };
           });
           response.expenseInfo = response.expenseInfo || { monthly: [], quarterly: [], yearly: [] };
@@ -315,152 +409,15 @@ serve(async (req) => {
       }
     }
 
-    // 获取月度分类费用数据（用于柱状图切换功能）
-    if (includeMonthlyExpenses && includeCategoryExpenses) {
-      try {
-        console.log('处理月度分类费用数据...');
-        
-        // 获取最近12个月的月度分类数据
-        const anchor = monthlyEndDate ? new Date(monthlyEndDate) : new Date();
-        const monthKeys: string[] = [];
-        for (let i = 11; i >= 0; i--) {
-          const d = new Date(anchor.getFullYear(), anchor.getMonth() - i, 1);
-          const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          monthKeys.push(mk);
-        }
-
-        // 查询月度分类数据
-        const { data: monthlyCategoryData, error: monthlyCategoryError } = await supabaseClient
-          .from('payment_history')
-          .select(`
-            payment_date,
-            amount_paid,
-            currency,
-            subscriptions!inner(
-              name,
-              category_id,
-              categories!inner(value, label)
-            )
-          `)
-          .eq('user_id', user.id)
-          .eq('status', 'success')
-          .gte('payment_date', `${monthKeys[0]}-01`)
-          .lte('payment_date', `${monthKeys[monthKeys.length - 1]}-31`);
-
-        if (!monthlyCategoryError && monthlyCategoryData) {
-          // 获取汇率数据用于货币转换 - 一次查询获取最新日期的所有汇率
-          // 对应的SQL语句:
-          // SELECT date, from_currency, to_currency, rate
-          // FROM exchange_rates
-          // ORDER BY date DESC, updated_at DESC
-          // LIMIT 100;
-          const { data: exchangeRates, error: ratesError } = await supabaseClient
-            .from('exchange_rates')
-            .select('date, from_currency, to_currency, rate')
-            .order('date', { ascending: false })
-            .order('updated_at', { ascending: false })
-            .limit(7); // 这里设置limit7是因为系统每天只更新7种货币的汇率转换
-
-          // 获取最新日期的汇率数据
-          let latestRates: any[] = [];
-          if (!ratesError && exchangeRates && exchangeRates.length > 0) {
-            const latestDate = exchangeRates[0].date;
-            latestRates = exchangeRates.filter(rate => rate.date === latestDate);
-            console.log(`使用最新汇率日期: ${latestDate}，获取到 ${latestRates.length} 条汇率数据`);
-          } else {
-            console.warn('未找到汇率数据:', ratesError);
-          }
-
-          // 构建汇率映射表
-          const rateMap: Record<string, number> = {};
-          if (!ratesError && latestRates.length > 0) {
-            latestRates.forEach((rate: any) => {
-              // CNY -> Other currency rates (如 CNY -> USD: 0.1395)
-              rateMap[`${rate.from_currency}_${rate.to_currency}`] = parseFloat(rate.rate);
-            });
-          }
-
-          // 处理数据：按月份和分类聚合
-          const monthCategoryMap: Record<string, Record<string, number>> = {};
-          
-          // 初始化所有月份
-          monthKeys.forEach(month => {
-            monthCategoryMap[month] = {};
-          });
-
-          // 聚合数据
-          monthlyCategoryData.forEach((payment: any) => {
-            const paymentDate = new Date(payment.payment_date);
-            const monthKey = `${paymentDate.getFullYear()}-${String(paymentDate.getMonth() + 1).padStart(2, '0')}`;
-            
-            if (monthCategoryMap[monthKey] && payment.subscriptions?.categories) {
-              const category = payment.subscriptions.categories.value;
-              const amount = parseFloat(payment.amount_paid) || 0;
-              
-              // 汇率转换逻辑
-              let convertedAmount = amount;
-              if (payment.currency !== targetCurrency) {
-                if (targetCurrency === 'CNY') {
-                  // 其他货币转换为CNY：需要除以汇率
-                  const rateKey = `CNY_${payment.currency}`;
-                  const rate = rateMap[rateKey];
-                  if (rate && rate > 0) {
-                    convertedAmount = amount / rate; // 例如: 20 USD / 0.1395 = 143.37 CNY
-                    console.log(`monthlyCategoryExpenses 汇率转换: ${amount} ${payment.currency} -> ${convertedAmount.toFixed(2)} ${targetCurrency} (rate: ${rate}) [${payment.subscriptions.name}]`);
-                  } else {
-                    console.warn(`monthlyCategoryExpenses 未找到汇率: ${payment.currency} -> ${targetCurrency} [${payment.subscriptions.name}]`);
-                  }
-                } else if (payment.currency === 'CNY') {
-                  // CNY转换为其他货币：直接乘以汇率
-                  const rateKey = `CNY_${targetCurrency}`;
-                  const rate = rateMap[rateKey];
-                  if (rate && rate > 0) {
-                    convertedAmount = amount * rate;
-                    console.log(`monthlyCategoryExpenses 汇率转换: ${amount} ${payment.currency} -> ${convertedAmount.toFixed(2)} ${targetCurrency} (rate: ${rate}) [${payment.subscriptions.name}]`);
-                  } else {
-                    console.warn(`monthlyCategoryExpenses 未找到汇率: ${payment.currency} -> ${targetCurrency} [${payment.subscriptions.name}]`);
-                  }
-                } else {
-                  // 非CNY到非CNY的转换：先转CNY，再转目标货币
-                  const fromRateKey = `CNY_${payment.currency}`;
-                  const toRateKey = `CNY_${targetCurrency}`;
-                  const fromRate = rateMap[fromRateKey];
-                  const toRate = rateMap[toRateKey];
-                  if (fromRate && toRate && fromRate > 0 && toRate > 0) {
-                    const cnyAmount = amount / fromRate;
-                    convertedAmount = cnyAmount * toRate;
-                    console.log(`monthlyCategoryExpenses 汇率转换: ${amount} ${payment.currency} -> ${cnyAmount.toFixed(2)} CNY -> ${convertedAmount.toFixed(2)} ${targetCurrency} [${payment.subscriptions.name}]`);
-                  } else {
-                    console.warn(`monthlyCategoryExpenses 未找到汇率: ${payment.currency} -> CNY -> ${targetCurrency} [${payment.subscriptions.name}]`);
-                  }
-                }
-              } else {
-                console.log(`monthlyCategoryExpenses 无需转换: ${amount} ${payment.currency} [${payment.subscriptions.name}]`);
-              }
-              
-              monthCategoryMap[monthKey][category] = (monthCategoryMap[monthKey][category] || 0) + convertedAmount;
-            }
-          });
-
-          // 转换为图表所需的格式
-          response.monthlyCategoryExpenses = monthKeys.map(monthKey => {
-            const year = parseInt(monthKey.split('-')[0]);
-            const month = parseInt(monthKey.split('-')[1]);
-            return {
-              month: monthKey,
-              monthKey: monthKey,
-              year: year,
-              categories: monthCategoryMap[monthKey],
-              total: Object.values(monthCategoryMap[monthKey]).reduce((sum, amount) => sum + amount, 0)
-            };
-          });
-        } else {
-          response.monthlyCategoryExpenses = [];
-        }
-      } catch (error) {
-        console.error('计算月度分类费用数据时出错:', error);
-        response.monthlyCategoryExpenses = [];
-      }
+    // 生成兼容性的monthlyCategoryExpenses数据（基于新的monthlyExpenses）
+    if (includeMonthlyExpenses && includeCategoryExpenses && response.monthlyExpenses) {
+      response.monthlyCategoryExpenses = response.monthlyExpenses.map((monthData: any) => ({
+        month: monthData.month,
+        monthKey: monthData.month,
+        year: monthData.year,
+        categories: monthData.categories,
+        total: monthData.categoryTotal
+      }));
     }
 
     // 添加性能指标

@@ -2286,7 +2286,7 @@ BEGIN
   
   -- 修复后的基于支付记录的计算，使用更宽松的时间范围
   WITH monthly_payment_data AS (
-    -- 基于实际支付的月度统计 - 最近6个月确保覆盖所有相关数据
+    -- 基于实际支付的月度统计 - 最近12个月确保覆盖所有相关数据
     SELECT 
       EXTRACT(YEAR FROM ph.payment_date) as year,
       EXTRACT(MONTH FROM ph.payment_date) as month,
@@ -2297,7 +2297,7 @@ BEGIN
     FROM payment_history ph
     WHERE ph.user_id = p_user_id 
       AND ph.status = 'success'
-      AND ph.payment_date >= (CURRENT_DATE - INTERVAL '6 months') -- 扩大范围确保包含所有相关数据
+      AND ph.payment_date >= (CURRENT_DATE - INTERVAL '12 months') -- 扩大范围确保包含1-2月份数据
     GROUP BY EXTRACT(YEAR FROM ph.payment_date), EXTRACT(MONTH FROM ph.payment_date)
   ),
   quarterly_payment_data AS (
@@ -2356,7 +2356,8 @@ BEGIN
           'quarter', quarter,
           'period', period,
           'amount', COALESCE(amount, 0),
-          'subscriptionCount', COALESCE(subscription_count, 0)
+          'subscriptionCount', COALESCE(subscription_count, 0),
+          'paymentCount', COALESCE(payment_count, 0)
         ) ORDER BY year DESC, quarter DESC
       )
       FROM quarterly_payment_data
@@ -2367,7 +2368,8 @@ BEGIN
           'year', year,
           'period', period,
           'amount', COALESCE(amount, 0),
-          'subscriptionCount', COALESCE(subscription_count, 0)
+          'subscriptionCount', COALESCE(subscription_count, 0),
+          'paymentCount', COALESCE(payment_count, 0)
         ) ORDER BY year DESC
       )
       FROM yearly_payment_data
