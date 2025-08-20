@@ -54,7 +54,7 @@ import { PaymentHistorySheet } from "@/components/subscription/PaymentHistoryShe
 import { DuplicatePaymentConfirmDialog } from "@/components/subscription/payment/DuplicatePaymentConfirmDialog"
 import { DuplicatePaymentDetectionResult } from "@/services/duplicatePaymentDetectionService"
 import { usePaymentRecordOperations } from "@/hooks/usePaymentRecordOperations"
-import { AddPaymentRecordParams } from "@/services/paymentRecordService"
+import { AddPaymentRecordParams, PaymentRecordService, AutoGenerateSubscriptionInfo } from "@/services/paymentRecordService"
 
 export function SubscriptionsPage() {
   const { toast } = useToast()
@@ -353,6 +353,86 @@ export function SubscriptionsPage() {
       setDetailSubscription(newlyCreatedSubscription)
     }
   }, [newlyCreatedSubscription])
+
+  /**
+   * 处理智能自动生成支付记录
+   * 从成功对话框触发，基于订阅的开始日期和计费周期自动生成历史支付记录
+   */
+  const handleAutoGeneratePayments = useCallback(async () => {
+    if (!newlyCreatedSubscription) {
+      toast({
+        title: "Error",
+        description: "No subscription data available for auto-generation.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    try {
+      // 设置loading状态
+      setOperationLoading('auto-generate', `Generating payment records for ${newlyCreatedSubscription.name}...`)
+      
+      // 准备订阅信息
+      const subscriptionInfo: AutoGenerateSubscriptionInfo = {
+        id: newlyCreatedSubscription.id,
+        name: newlyCreatedSubscription.name,
+        amount: newlyCreatedSubscription.amount,
+        currency: newlyCreatedSubscription.currency,
+        billingCycle: newlyCreatedSubscription.billingCycle,
+        startDate: newlyCreatedSubscription.startDate,
+        renewalType: newlyCreatedSubscription.renewalType,
+        nextBillingDate: newlyCreatedSubscription.nextBillingDate,
+        lastBillingDate: newlyCreatedSubscription.lastBillingDate
+      }
+      
+      // 调用自动生成服务
+      const result = await PaymentRecordService.autoGeneratePaymentRecords(
+        subscriptionInfo,
+        async (id: string, updates: { lastBillingDate: string }) => {
+          const { error } = await updateSubscription(id, updates)
+          return { error }
+        }
+      )
+      
+      if (result.success) {
+        // 更新本地订阅数据的last_billing_date和next_billing_date
+        if (result.lastBillingDateUpdated && result.newLastBillingDate) {
+          const currentSubscription = subscriptions.find(sub => sub.id === newlyCreatedSubscription.id)
+          if (currentSubscription) {
+            const updatedData = {
+              ...currentSubscription,
+              lastBillingDate: result.newLastBillingDate,
+              nextBillingDate: result.newNextBillingDate || currentSubscription.nextBillingDate
+            }
+            updateLocalSubscription(updatedData)
+            setAllSubscriptions(prev => 
+              prev.map(sub => sub.id === newlyCreatedSubscription.id ? updatedData : sub)
+            )
+          }
+        }
+        
+        toast({
+          title: "Payment Records Generated Successfully",
+          description: `Generated ${result.generatedCount} payment record(s) for ${newlyCreatedSubscription.name}.`,
+        })
+        
+        // 关闭成功对话框
+        setShowSuccessDialog(false)
+        setNewlyCreatedSubscription(null)
+      } else {
+        throw new Error(result.error || 'Unknown error occurred during auto-generation')
+      }
+    } catch (error) {
+      console.error('自动生成支付记录失败:', error)
+      toast({
+        title: "Auto-Generation Failed",
+        description: error instanceof Error ? error.message : "Failed to auto-generate payment records.",
+        variant: "destructive"
+      })
+    } finally {
+      clearOperationLoading()
+    }
+  }, [newlyCreatedSubscription, toast, setOperationLoading, clearOperationLoading, updateSubscription, subscriptions, updateLocalSubscription, setAllSubscriptions])
 
   /**
    * 处理支付记录表单提交（使用统一的支付记录服务）
@@ -1170,6 +1250,8 @@ export function SubscriptionsPage() {
           onAddPayment={handleAddPaymentFromSuccess}
           onImportPayments={handleImportPaymentsFromSuccess}
           onViewDetails={handleViewSubscriptionFromSuccess}
+          onAutoGeneratePayments={handleAutoGeneratePayments}
+          isAutoGenerating={operationLoading.isLoading && operationLoading.action === 'auto-generate'}
         />
       )}
 
@@ -1189,7 +1271,8 @@ export function SubscriptionsPage() {
             amount: selectedSubscription.amount,
             currency: selectedSubscription.currency,
             billingCycle: selectedSubscription.billingCycle,
-            nextBillingDate: selectedSubscription.nextBillingDate || undefined
+            nextBillingDate: selectedSubscription.nextBillingDate || undefined,
+            startDate: selectedSubscription.startDate || undefined
           }}
           onSubmit={handlePaymentSubmit as (data: {
           subscriptionId: string

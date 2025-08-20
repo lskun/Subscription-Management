@@ -286,10 +286,10 @@ E2E测试需要认证时，使用以下测试账户：
 - 测试后手动关闭开发环境：`npm run stop`
 - 运行完`npm run test`记得退出,playwright mcp：`playwright mcp stop`  
 
-## 注意事项
+## 注意事项(非常重要)
 - 提交前必须运行 lint 和测试
 - 新功能需要更新文档
-- 创建或修改数据库函数或者表结构时必须保存，更新`000_database_schema.sql`文件（非常重要）
+- [important]创建或修改数据库函数或者表结构时必须保存，更新`000_database_schema.sql`文件
 - 创建或修改edge function时，必须更新`supabase/functions/`目录下的对应的`index.ts`文件
 - 遵循代码复用的最大化原则，避免重复代码，包括UI组件样式、函数定义等
 

@@ -57,6 +57,7 @@ interface PrefilledData {
   currency?: string
   billingCycle?: string
   nextBillingDate?: string
+  startDate?: string
 }
 
 interface PaymentHistorySheetProps {
@@ -238,6 +239,12 @@ const handleAmountChange = (value: string) => {
       const today = new Date()
       let billingPeriodEnd = new Date()
       let billingPeriodStart = new Date()
+      let defaultPaymentDate = today
+      
+      // 如果有预填充数据且包含开始日期，使用订阅开始日期作为支付日期默认值
+      if (prefilledData?.startDate) {
+        defaultPaymentDate = new Date(prefilledData.startDate)
+      }
       
       // 如果有预填充数据且包含下次计费日期，计算计费期间
       if (prefilledData?.nextBillingDate && prefilledData?.billingCycle) {
@@ -248,11 +255,15 @@ const handleAmountChange = (value: string) => {
         
         // 根据计费周期计算开始日期
         billingPeriodStart = calculateBillingPeriodStart(nextBilling, prefilledData.billingCycle)
+      } else if (prefilledData?.startDate && prefilledData?.billingCycle) {
+        // 如果没有nextBillingDate，但有startDate，可以从startDate开始计算第一个计费周期
+        billingPeriodStart = new Date(prefilledData.startDate)
+        billingPeriodEnd = calculateBillingPeriodEnd(billingPeriodStart, prefilledData.billingCycle)
       }
       
       setForm({
         subscriptionId,
-        paymentDate: today,
+        paymentDate: defaultPaymentDate,
         amountPaid: prefilledData?.amount || 0,
         currency: prefilledData?.currency || getBaseCurrency(),
         billingPeriodStart,
@@ -303,27 +314,20 @@ const handleAmountChange = (value: string) => {
       }
     }
 
-        // 7. 支付日期与账单周期关系校验
-    if (form.paymentDate && form.billingPeriodStart && form.billingPeriodEnd) {
+    // 7. 支付日期与账单周期关系校验
+    // 用户要求：支付日期必须小于计费周期开始日期
+    if (form.paymentDate && form.billingPeriodStart) {
       // 标准化日期比较：只比较日期部分，忽略时间部分
       const paymentDate = new Date(form.paymentDate)
       const startDate = new Date(form.billingPeriodStart)
-      const endDate = new Date(form.billingPeriodEnd)
       
       // 将所有日期设置为当天的00:00:00以确保准确比较
       paymentDate.setHours(0, 0, 0, 0)
       startDate.setHours(0, 0, 0, 0)
-      endDate.setHours(0, 0, 0, 0)
       
-      const gracePeriod = new Date(endDate)
-      gracePeriod.setDate(gracePeriod.getDate() + 30) // 30天宽限期
-      gracePeriod.setHours(0, 0, 0, 0)
-
-      if (paymentDate < startDate) {
-        console.debug("Payment date before billing period start", paymentDate, startDate)
-        newErrors.paymentDate = "Payment date cannot be before billing period start date"
-      } else if (paymentDate > gracePeriod) {
-        newErrors.paymentDate = "Payment date cannot be after billing period end date plus 30 days"
+      // 支付日期必须小于等于计费周期开始日期
+      if (paymentDate > startDate) {
+        newErrors.paymentDate = "Payment date must be before billing period start date"
       }
     }
 

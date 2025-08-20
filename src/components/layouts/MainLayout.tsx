@@ -60,32 +60,46 @@ export function MainLayout({ children }: MainLayoutProps) {
           <div className="flex items-center gap-6 md:gap-10">
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-2">
+          <div className="flex items-center gap-1 sm:gap-3">
             <Link to="/dashboard">
-              <Button variant={location.pathname === '/dashboard' ? "default" : "ghost"} size="sm" className="px-2 sm:px-3">
+              <Button 
+                variant={location.pathname === '/dashboard' ? "default" : "ghost"} 
+                size="default" 
+                className="px-3 sm:px-4 h-9 text-sm font-medium"
+              >
                 <Home className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Dashboard</span>
               </Button>
             </Link>
 
             <Link to="/subscriptions">
-              <Button variant={location.pathname === '/subscriptions' ? "default" : "ghost"} size="sm" className="px-2 sm:px-3">
+              <Button 
+                variant={location.pathname === '/subscriptions' ? "default" : "ghost"} 
+                size="default" 
+                className="px-3 sm:px-4 h-9 text-sm font-medium"
+              >
                 <CreditCard className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Subscriptions</span>
               </Button>
             </Link>
 
             <Link to="/expense-reports">
-              <Button variant={location.pathname === '/expense-reports' ? "default" : "ghost"} size="sm" className="px-2 sm:px-3">
+              <Button 
+                variant={location.pathname === '/expense-reports' ? "default" : "ghost"} 
+                size="default" 
+                className="px-3 sm:px-4 h-9 text-sm font-medium"
+              >
                 <BarChart3 className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Reports</span>
               </Button>
             </Link>
 
-
-
             <Link to="/settings">
-              <Button variant={location.pathname === '/settings' ? "default" : "ghost"} size="sm" className="px-2 sm:px-3">
+              <Button 
+                variant={location.pathname === '/settings' ? "default" : "ghost"} 
+                size="default" 
+                className="px-3 sm:px-4 h-9 text-sm font-medium"
+              >
                 <Settings className="h-4 w-4 sm:mr-2" />
                 <span className="hidden sm:inline">Settings</span>
               </Button>

@@ -2,10 +2,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { CheckCircle, CreditCard, FileText, Eye, Clock } from "lucide-react"
+import { CheckCircle, CreditCard, FileText, Eye, Clock, Sparkles, Calendar, Loader2 } from "lucide-react"
 import { Subscription } from "@/store/subscriptionStore"
 import { formatWithUserCurrency } from "@/utils/currency"
 import { format } from "date-fns"
+import { useState } from "react"
 
 interface SubscriptionSuccessDialogProps {
   subscription: Subscription
@@ -14,6 +15,8 @@ interface SubscriptionSuccessDialogProps {
   onAddPayment: () => void
   onImportPayments: () => void
   onViewDetails: () => void
+  onAutoGeneratePayments?: () => void
+  isAutoGenerating?: boolean
 }
 
 /**
@@ -26,8 +29,12 @@ export function SubscriptionSuccessDialog({
   onOpenChange,
   onAddPayment,
   onImportPayments,
-  onViewDetails
+  onViewDetails,
+  onAutoGeneratePayments,
+  isAutoGenerating = false
 }: SubscriptionSuccessDialogProps) {
+  // 内部loading状态，用于控制按钮状态和界面显示
+  const [internalLoading, setInternalLoading] = useState(false)
   /**
    * Get status display style
    */
@@ -77,15 +84,76 @@ export function SubscriptionSuccessDialog({
   }
 
   /**
+   * 判断是否应该显示自动生成支付记录选项
+   * 只要开始时间<=当天，无论订阅类型都应该显示智能引导
+   */
+  const shouldShowAutoGeneration = () => {
+    return new Date(subscription.startDate) <= new Date()
+  }
+
+  /**
+   * 计算预估的支付记录数量
+   */
+  const calculateEstimatedRecords = () => {
+    if (!shouldShowAutoGeneration()) return 0
+    
+    const startDate = new Date(subscription.startDate)
+    const currentDate = new Date()
+    const monthsDiff = Math.floor((currentDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 30))
+    
+    switch (subscription.billingCycle) {
+      case 'monthly':
+        return Math.max(1, monthsDiff + 1)
+      case 'quarterly':
+        return Math.max(1, Math.floor(monthsDiff / 3) + 1)
+      case 'yearly':
+        return Math.max(1, Math.floor(monthsDiff / 12) + 1)
+      default:
+        return 1
+    }
+  }
+
+  /**
    * Handle later button click
    */
   const handleLater = () => {
     onOpenChange(false)
   }
 
+  /**
+   * Handle auto generate payments
+   */
+  const handleAutoGenerate = async () => {
+    if (onAutoGeneratePayments) {
+      // 设置内部loading状态
+      setInternalLoading(true)
+      try {
+        await onAutoGeneratePayments()
+      } finally {
+        // 注意：这里不直接清除loading状态，因为父组件可能需要关闭对话框
+        // loading状态会在组件重新渲染或对话框关闭时自然重置
+      }
+    }
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
+        {/* Loading遮罩层 */}
+        {(internalLoading || isAutoGenerating) && (
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-4 text-center">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Generating Payment Records</p>
+                <p className="text-xs text-muted-foreground">
+                  Creating payment history for {subscription.name}...
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/20">
@@ -143,53 +211,124 @@ export function SubscriptionSuccessDialog({
 
           <Separator />
 
-          {/* Follow-up Action Suggestions */}
-          <div className="space-y-3">
-            <h4 className="font-medium text-base">What you can do next:</h4>
-            <div className="grid gap-3">
-              <Button
-                onClick={onAddPayment}
-                className="justify-start h-auto p-4"
-                variant="outline"
-              >
-                <CreditCard className="h-5 w-5 mr-3" />
-                <div className="text-left">
-                  <div className="font-medium">Add Payment Record Now</div>
-                  <div className="text-sm text-muted-foreground">
-                    Record your first payment information
-                  </div>
+          {/* 智能引导：自动生成支付记录 */}
+          {shouldShowAutoGeneration() && onAutoGeneratePayments && (
+            <div className="space-y-3">
+              <div className="bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  <h4 className="font-medium text-blue-900 dark:text-blue-100">Smart Payment History Generation</h4>
                 </div>
-              </Button>
-
-              <Button
-                onClick={onImportPayments}
-                className="justify-start h-auto p-4"
-                variant="outline"
-              >
-                <FileText className="h-5 w-5 mr-3" />
-                <div className="text-left">
-                  <div className="font-medium">Import Payment History</div>
-                  <div className="text-sm text-muted-foreground">
-                    Bulk import existing payment data
-                  </div>
+                
+                <p className="text-sm text-blue-700 dark:text-blue-300 mb-4">
+                  Your subscription started on {format(new Date(subscription.startDate), 'MMM dd, yyyy')}.
+                  We can automatically generate approximately {calculateEstimatedRecords()} payment record(s) for you based on your billing cycle.
+                </p>
+                
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button 
+                    onClick={handleAutoGenerate}
+                    disabled={internalLoading || isAutoGenerating}
+                    className="bg-blue-600 hover:bg-blue-700 text-white flex-1 sm:flex-none disabled:opacity-50"
+                  >
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Auto-Generate Records
+                  </Button>
+                  <Button 
+                    onClick={onAddPayment}
+                    disabled={internalLoading || isAutoGenerating}
+                    variant="outline" 
+                    className="border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300 dark:hover:bg-blue-950/50 flex-1 sm:flex-none disabled:opacity-50"
+                  >
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    Add Manually
+                  </Button>
                 </div>
-              </Button>
-
-              <Button
-                onClick={onViewDetails}
-                className="justify-start h-auto p-4"
-                variant="outline"
-              >
-                <Eye className="h-5 w-5 mr-3" />
-                <div className="text-left">
-                  <div className="font-medium">View Subscription Details</div>
-                  <div className="text-sm text-muted-foreground">
-                    View complete subscription information and settings
-                  </div>
-                </div>
-              </Button>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* 常规操作选项：当不满足自动生成条件时显示 */}
+          {!shouldShowAutoGeneration() && (
+            <div className="space-y-3">
+              <h4 className="font-medium text-base">What you can do next:</h4>
+              <div className="grid gap-3">
+                <Button
+                  onClick={onAddPayment}
+                  className="justify-start h-auto p-4"
+                  variant="outline"
+                >
+                  <CreditCard className="h-5 w-5 mr-3" />
+                  <div className="text-left">
+                    <div className="font-medium">Add Payment Record Now</div>
+                    <div className="text-sm text-muted-foreground">
+                      Record your first payment information
+                    </div>
+                  </div>
+                </Button>
+
+                <Button
+                  onClick={onImportPayments}
+                  className="justify-start h-auto p-4"
+                  variant="outline"
+                >
+                  <FileText className="h-5 w-5 mr-3" />
+                  <div className="text-left">
+                    <div className="font-medium">Import Payment History</div>
+                    <div className="text-sm text-muted-foreground">
+                      Bulk import existing payment data
+                    </div>
+                  </div>
+                </Button>
+
+                <Button
+                  onClick={onViewDetails}
+                  className="justify-start h-auto p-4"
+                  variant="outline"
+                >
+                  <Eye className="h-5 w-5 mr-3" />
+                  <div className="text-left">
+                    <div className="font-medium">View Subscription Details</div>
+                    <div className="text-sm text-muted-foreground">
+                      View complete subscription information and settings
+                    </div>
+                  </div>
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* 其他选项：始终显示 */}
+          {shouldShowAutoGeneration() && (
+            <div className="space-y-3">
+              <h4 className="font-medium text-base">Other options:</h4>
+              <div className="grid gap-2">
+                <Button
+                  onClick={onImportPayments}
+                  disabled={internalLoading || isAutoGenerating}
+                  className="justify-start h-auto p-3 disabled:opacity-50"
+                  variant="ghost"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  <div className="text-left">
+                    <div className="text-sm font-medium">Import Payment History</div>
+                  </div>
+                </Button>
+
+                <Button
+                  onClick={onViewDetails}
+                  disabled={internalLoading || isAutoGenerating}
+                  className="justify-start h-auto p-3 disabled:opacity-50"
+                  variant="ghost"
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  <div className="text-left">
+                    <div className="text-sm font-medium">View Subscription Details</div>
+                  </div>
+                </Button>
+              </div>
+            </div>
+          )}
 
           <Separator />
 
@@ -197,8 +336,9 @@ export function SubscriptionSuccessDialog({
           <div className="flex justify-end gap-3">
             <Button
               onClick={handleLater}
+              disabled={internalLoading || isAutoGenerating}
               variant="ghost"
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 disabled:opacity-50"
             >
               <Clock className="h-4 w-4" />
               Later

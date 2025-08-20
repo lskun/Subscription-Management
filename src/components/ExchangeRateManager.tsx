@@ -103,8 +103,10 @@ export function ExchangeRateManager() {
       // Refresh exchange rate data
       await fetchExchangeRates();
       await loadRateStats();
-      await loadUpdateLogs();
-      await loadSchedulerStatus();
+      if (isAdmin) {
+        await loadUpdateLogs();
+        await loadSchedulerStatus();
+      }
       logger.info(`Successfully updated ${result.rates_updated} exchange rates`);
     } catch (error) {
       logger.error('Failed to update exchange rates:', error);
@@ -144,7 +146,9 @@ export function ExchangeRateManager() {
       await supabaseExchangeRateService.cleanupOldHistory(days);
       logger.info(`Successfully cleaned up data older than ${days} days`);
       await loadRateStats();
-      await loadUpdateLogs();
+      if (isAdmin) {
+        await loadUpdateLogs();
+      }
     } catch (error) {
       logger.error('Failed to cleanup old data:', error);
     }
@@ -180,10 +184,13 @@ export function ExchangeRateManager() {
   };
 
   // 初始加载：统计与统一调度状态
+  // 只有管理员才需要加载调度状态，避免非管理员用户产生403错误请求
   useEffect(() => {
     loadRateStats();
-    loadSchedulerStatus();
-  }, []);
+    if (isAdmin) {
+      loadSchedulerStatus();
+    }
+  }, [isAdmin]);
 
   const formatLastUpdate = (dateString: string | null) => {
     if (!dateString) return 'Never';
@@ -224,12 +231,16 @@ export function ExchangeRateManager() {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="settings" className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-5' : 'grid-cols-1'}`}>
           <TabsTrigger value="settings">Settings</TabsTrigger>
-          <TabsTrigger value="status">Status</TabsTrigger>
-          <TabsTrigger value="scheduler">Scheduler</TabsTrigger>
-          <TabsTrigger value="history">History</TabsTrigger>
-          <TabsTrigger value="logs">Update Logs</TabsTrigger>
+          {isAdmin && (
+            <>
+              <TabsTrigger value="status">Status</TabsTrigger>
+              <TabsTrigger value="scheduler">Scheduler</TabsTrigger>
+              <TabsTrigger value="history">History</TabsTrigger>
+              <TabsTrigger value="logs">Update Logs</TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         <TabsContent value="settings" className="space-y-4">
@@ -402,7 +413,7 @@ export function ExchangeRateManager() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="scheduler" className="space-y-4">
+        {isAdmin && <TabsContent value="scheduler" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -561,9 +572,9 @@ export function ExchangeRateManager() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
-        <TabsContent value="status" className="space-y-4">
+        {isAdmin && <TabsContent value="status" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -625,9 +636,9 @@ export function ExchangeRateManager() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
-        <TabsContent value="history" className="space-y-4">
+        {isAdmin && <TabsContent value="history" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -694,9 +705,9 @@ export function ExchangeRateManager() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
 
-        <TabsContent value="logs" className="space-y-4">
+        {isAdmin && <TabsContent value="logs" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -768,7 +779,7 @@ export function ExchangeRateManager() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
       </Tabs>
     </div>
   );

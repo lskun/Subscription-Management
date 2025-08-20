@@ -525,6 +525,7 @@ export function shouldUpdateLastBillingDateWithReason(
   subscriptionBillingCycle: BillingCycle
 ): PaymentUpdateResult {
   const paymentDateTime = new Date(paymentDate)
+  const billingPeriodStartDate = new Date(billingPeriodStart)
   const now = new Date()
   
   // 1. 只有成功的支付才能更新 last_billing_date
@@ -545,13 +546,13 @@ export function shouldUpdateLastBillingDateWithReason(
     }
   }
   
-  // 3. 支付日期必须晚于当前的 last_billing_date
+  // 3. 计费周期开始日期必须晚于当前的 last_billing_date
   if (currentLastBillingDate) {
     const currentLastBillingDateTime = new Date(currentLastBillingDate)
-    if (paymentDateTime <= currentLastBillingDateTime) {
+    if (billingPeriodStartDate <= currentLastBillingDateTime) {
       return {
         shouldUpdate: false,
-        reason: 'This payment record is earlier than the current last billing date, and will be added as a historical record',
+        reason: 'This payment record billing period is earlier than the current last billing date, and will be added as a historical record',
         isHistoricalRecord: true
       }
     }
@@ -568,7 +569,7 @@ export function shouldUpdateLastBillingDateWithReason(
   
   return {
     shouldUpdate: true,
-    reason: 'This payment record has been successfully added, and the subscription last billing date has been updated.',
+    reason: 'This payment record has been successfully added, and the subscription last billing date has been updated to the billing period start date.',
     isHistoricalRecord: false
   }
 }
