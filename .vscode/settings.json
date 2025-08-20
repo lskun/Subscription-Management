@@ -2,7 +2,9 @@
   "deno.enablePaths": [
     "supabase/functions"
   ],
+  "deno.enable": true,
   "deno.lint": true,
-  "deno.unstable": true,
+  "editor.formatOnSave": true,
+  "typescript.tsserver.experimental.enableProjectDiagnostics": false,
   "typescript.tsdk": "node_modules/typescript/lib"
 }

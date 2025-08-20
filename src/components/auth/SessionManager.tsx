@@ -116,10 +116,10 @@ export function SessionManager({
       console.log('自动刷新会话...')
       try {
         await refreshSession()
-        toast.success('会话已自动刷新')
+        toast.success('Session auto-refreshed successfully')
       } catch (error) {
         console.error('自动刷新失败:', error)
-        toast.error('自动刷新失败')
+        toast.error('Auto-refresh failed')
       }
     }
 
@@ -134,12 +134,12 @@ export function SessionManager({
     try {
       const success = await refreshSession()
       if (success) {
-        toast.success('会话刷新成功')
+        toast.success('Session refreshed successfully')
       } else {
-        toast.error('会话刷新失败')
+        toast.error('Session refresh failed')
       }
     } catch (error) {
-      toast.error('会话刷新失败')
+      toast.error('Session refresh failed')
     } finally {
       setRefreshing(false)
     }
@@ -150,12 +150,12 @@ export function SessionManager({
     try {
       const isValid = await validateSession()
       if (isValid) {
-        toast.success('会话有效')
+        toast.success('Session is valid')
       } else {
-        toast.error('会话无效，请重新登录')
+        toast.error('Session is invalid, please log in again')
       }
     } catch (error) {
-      toast.error('会话验证失败')
+      toast.error('Session validation failed')
     } finally {
       setValidating(false)
     }
@@ -166,12 +166,12 @@ export function SessionManager({
     try {
       const success = await recoverSession()
       if (success) {
-        toast.success('会话管理已恢复')
+        toast.success('Session management recovered')
       } else {
-        toast.error('会话恢复失败，请重新登录')
+        toast.error('Session recovery failed, please log in again')
       }
     } catch (error) {
-      toast.error('会话恢复失败')
+      toast.error('Session recovery failed')
     } finally {
       setRecovering(false)
     }
@@ -195,37 +195,37 @@ export function SessionManager({
     const days = Math.floor(hours / 24)
 
     if (days > 0) {
-      return `${days}天 ${hours % 24}小时 ${minutes % 60}分钟`
+      return `${days}d ${hours % 24}h ${minutes % 60}m`
     } else if (hours > 0) {
-      return `${hours}小时 ${minutes % 60}分钟`
+      return `${hours}h ${minutes % 60}m`
     } else if (minutes > 0) {
-      return `${minutes}分钟 ${seconds % 60}秒`
+      return `${minutes}m ${seconds % 60}s`
     } else {
-      return `${seconds}秒`
+      return `${seconds}s`
     }
   }
 
   const getStatusBadge = () => {
     if (!user) {
-      return <Badge variant="secondary">未登录</Badge>
+      return <Badge variant="secondary">Not Logged In</Badge>
     }
     
     if (isSessionValid) {
-      return <Badge variant="default" className="bg-green-500">已登录</Badge>
+      return <Badge variant="default" className="bg-green-500">Logged In</Badge>
     } else {
-      return <Badge variant="destructive">会话无效</Badge>
+      return <Badge variant="destructive">Invalid Session</Badge>
     }
   }
 
   const getHealthBadge = () => {
     if (!sessionHealth) {
-      return <Badge variant="secondary">检查中...</Badge>
+      return <Badge variant="secondary">Checking...</Badge>
     }
 
     if (sessionHealth.isHealthy) {
-      return <Badge variant="default" className="bg-green-500">健康</Badge>
+      return <Badge variant="default" className="bg-green-500">Healthy</Badge>
     } else {
-      return <Badge variant="destructive">异常</Badge>
+      return <Badge variant="destructive">Unhealthy</Badge>
     }
   }
 
@@ -239,7 +239,7 @@ export function SessionManager({
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">会话剩余时间</span>
+          <span className="text-muted-foreground">Session Time Remaining</span>
           <span className={isExpiringSoon ? 'text-orange-600 font-medium' : 'text-muted-foreground'}>
             {formatDuration(timeUntilExpiry)}
           </span>
@@ -250,7 +250,7 @@ export function SessionManager({
         />
         {isExpiringSoon && (
           <p className="text-xs text-orange-600">
-            ⚠️ 会话即将过期，建议刷新
+            ⚠️ Session expiring soon, refresh recommended
           </p>
         )}
       </div>
@@ -263,7 +263,7 @@ export function SessionManager({
         <CardContent className="pt-6">
           <div className="flex items-center justify-center gap-2 text-muted-foreground">
             <User className="h-4 w-4" />
-            <span>用户未登录</span>
+            <span>User Not Logged In</span>
           </div>
         </CardContent>
       </Card>
@@ -275,16 +275,16 @@ export function SessionManager({
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Shield className="h-5 w-5" />
-          会话管理
+          Session Management
           {autoRefresh && (
             <Badge variant="outline" className="ml-auto">
               <RefreshCw className="h-3 w-3 mr-1" />
-              自动刷新
+              Auto Refresh
             </Badge>
           )}
         </CardTitle>
         <CardDescription>
-          管理和监控用户会话状态
+          Manage and monitor user session status
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -308,12 +308,12 @@ export function SessionManager({
           <div className="space-y-3 text-sm border-t pt-4">
             <h4 className="font-medium flex items-center gap-2">
               <Activity className="h-4 w-4" />
-              详细信息
+              Detailed Information
             </h4>
             
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <span className="text-muted-foreground">最后活动:</span>
+                <span className="text-muted-foreground">Last Activity:</span>
                 <p className="font-mono text-xs mt-1">
                   {formatTime(detailedInfo.lastActivity)}
                 </p>
@@ -321,7 +321,7 @@ export function SessionManager({
               
               {detailedInfo.expiresAt && (
                 <div>
-                  <span className="text-muted-foreground">过期时间:</span>
+                  <span className="text-muted-foreground">Expires At:</span>
                   <p className="font-mono text-xs mt-1">
                     {formatTime(detailedInfo.expiresAt)}
                   </p>
@@ -336,7 +336,7 @@ export function SessionManager({
                 ) : (
                   <XCircle className="h-3 w-3 text-red-500" />
                 )}
-                <span>管理{detailedInfo.isActive ? '活跃' : '停止'}</span>
+                <span>Session {detailedInfo.isActive ? 'Active' : 'Inactive'}</span>
               </div>
               
               <div className="flex items-center gap-1">
@@ -345,7 +345,7 @@ export function SessionManager({
                 ) : (
                   <CheckCircle className="h-3 w-3 text-green-500" />
                 )}
-                <span>{detailedInfo.needsRefresh ? '需要刷新' : '状态良好'}</span>
+                <span>{detailedInfo.needsRefresh ? 'Needs Refresh' : 'Status Good'}</span>
               </div>
             </div>
           </div>
@@ -357,7 +357,7 @@ export function SessionManager({
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
               <div className="space-y-2">
-                <p className="font-medium">检测到会话问题:</p>
+                <p className="font-medium">Session issues detected:</p>
                 <ul className="list-disc list-inside space-y-1 text-sm">
                   {sessionHealth.issues.map((issue, index) => (
                     <li key={index}>{issue}</li>
@@ -365,7 +365,7 @@ export function SessionManager({
                 </ul>
                 {sessionHealth.recommendations.length > 0 && (
                   <div>
-                    <p className="font-medium text-sm">建议:</p>
+                    <p className="font-medium text-sm">Recommendations:</p>
                     <ul className="list-disc list-inside space-y-1 text-sm">
                       {sessionHealth.recommendations.map((rec, index) => (
                         <li key={index}>{rec}</li>
@@ -387,7 +387,7 @@ export function SessionManager({
             disabled={refreshing}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? '刷新中...' : '刷新会话'}
+            {refreshing ? 'Refreshing...' : 'Refresh Session'}
           </Button>
           
           <Button
@@ -397,7 +397,7 @@ export function SessionManager({
             disabled={validating}
           >
             <Shield className={`h-4 w-4 mr-2 ${validating ? 'animate-spin' : ''}`} />
-            {validating ? '验证中...' : '验证会话'}
+            {validating ? 'Validating...' : 'Validate Session'}
           </Button>
 
           {sessionHealth && !sessionHealth.isHealthy && (
@@ -408,7 +408,7 @@ export function SessionManager({
               disabled={recovering}
             >
               <Activity className={`h-4 w-4 mr-2 ${recovering ? 'animate-spin' : ''}`} />
-              {recovering ? '恢复中...' : '恢复管理'}
+              {recovering ? 'Recovering...' : 'Recover Session'}
             </Button>
           )}
         </div>
@@ -418,7 +418,7 @@ export function SessionManager({
           <Alert>
             <XCircle className="h-4 w-4" />
             <AlertDescription>
-              会话已失效，请重新登录以继续使用。
+              Session has expired. Please log in again to continue.
             </AlertDescription>
           </Alert>
         )}

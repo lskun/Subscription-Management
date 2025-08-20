@@ -15,3 +15,6 @@ dist
 .env.production.example
 
 server/db/database.sqlite
+
+deno.lock
+./vscode/settings.json
