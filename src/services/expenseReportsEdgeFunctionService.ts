@@ -5,12 +5,22 @@ export interface MonthlyExpense {
   year: number
   total: number
   currency: string
+  activeSubscriptionCount?: number
+}
+
+export interface QuarterlyExpense {
+  quarter: number
+  year: number
+  total: number
+  currency: string
+  activeSubscriptionCount?: number
 }
 
 export interface YearlyExpense {
   year: number
   total: number
   currency: string
+  activeSubscriptionCount?: number
 }
 
 export interface CategoryExpense {
@@ -34,15 +44,19 @@ export interface ExpenseInfoData {
   amount: number
   change: number
   currency: string
+  paymentCount?: number
 }
 
 export interface ExpenseReportsRequest {
   targetCurrency?: string
   monthlyStartDate?: string
   monthlyEndDate?: string
+  quarterlyStartDate?: string
+  quarterlyEndDate?: string
   yearlyStartDate?: string
   yearlyEndDate?: string
   includeMonthlyExpenses?: boolean
+  includeQuarterlyExpenses?: boolean
   includeYearlyExpenses?: boolean
   includeCategoryExpenses?: boolean
   includeExpenseInfo?: boolean
@@ -50,6 +64,7 @@ export interface ExpenseReportsRequest {
 
 export interface ExpenseReportsResponse {
   monthlyExpenses?: MonthlyExpense[]
+  quarterlyExpenses?: QuarterlyExpense[]
   yearlyExpenses?: YearlyExpense[]
   categoryExpenses?: CategoryExpense[]
   yearlyCategoryExpenses?: CategoryExpense[]

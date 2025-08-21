@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from "react"
-import { 
-  Calendar, 
-  Plus, 
-  Search, 
+import {
+  Calendar,
+  Plus,
+  Search,
   Tags,
   Check,
   Download,
@@ -29,19 +29,22 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { Crown } from 'lucide-react'
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { useConfirmation } from "@/hooks/use-confirmation"
 import { addMonths, addQuarters, addYears } from "date-fns"
 
-import { 
-  useSubscriptionStore, 
-  Subscription, 
+import {
+  useSubscriptionStore,
+  Subscription,
   SubscriptionStatus,
   BillingCycle
 } from "@/store/subscriptionStore"
 
 import { useSubscriptionsData } from "@/hooks/useSubscriptionsData"
 import { SubscriptionData } from "@/services/subscriptionsEdgeFunctionService"
+import { usePermissions, useUserPlan, useQuota } from "@/hooks/usePermissionsOptimized"
+import { Permission, QuotaType } from "@/services/userPermissionService"
 
 
 import { SubscriptionCard } from "@/components/subscription/SubscriptionCard"
@@ -68,22 +71,31 @@ export function SubscriptionsPage() {
   const [billingCycleFilterOpen, setBillingCycleFilterOpen] = useState(false)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
-  
+
+  // 权限控制 Hooks
+  const { plan, isFreePlan, loading: planLoading } = useUserPlan()
+  const { quota: subscriptionQuota, isAtLimit, isNearLimit } = useQuota(QuotaType.MAX_SUBSCRIPTIONS)
+  const permissions = usePermissions([
+    Permission.EXPORT_SUBSCRIPTION_DATA,
+    Permission.BULK_OPERATIONS
+  ])
+  const hasExportPermission = permissions.hasPermission(Permission.EXPORT_SUBSCRIPTION_DATA)
+
   // 订阅成功对话框相关状态
   const [showSuccessDialog, setShowSuccessDialog] = useState(false)
   const [newlyCreatedSubscription, setNewlyCreatedSubscription] = useState<Subscription | null>(null)
-  
+
   // 支付记录表单相关状态
   const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null)
   const [detailSubscription, setDetailSubscription] = useState<Subscription | null>(null)
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc")
-  
+
   // 重复支付检测相关状态（保留用于兼容现有的DuplicatePaymentWarningDialog）
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(false)
   const [duplicateDetectionResult, setDuplicateDetectionResult] = useState<DuplicatePaymentDetectionResult | null>(null)
   const [pendingPaymentData, setPendingPaymentData] = useState<any>(null)
-  
+
   // 统一的支付记录操作hook
   const {
     isLoading: isAddingPayment,
@@ -97,7 +109,7 @@ export function SubscriptionsPage() {
       // 关闭表单
       setShowPaymentForm(false)
       setSelectedSubscription(null)
-      
+
       // 如果是从成功对话框来的，也关闭成功对话框
       if (showSuccessDialog) {
         setShowSuccessDialog(false)
@@ -116,7 +128,7 @@ export function SubscriptionsPage() {
   })
   // 管理整个订阅区域的loading状态
   const [operationLoading, setOperationLoadingState] = useState<{ isLoading: boolean; action?: string; message?: string }>({ isLoading: false })
-  
+
   /**
    * 设置操作loading状态
    * @param action - 执行的操作类型
@@ -132,7 +144,7 @@ export function SubscriptionsPage() {
   const clearOperationLoading = useCallback(() => {
     setOperationLoadingState({ isLoading: false })
   }, [])
-  
+
   // Use the new subscriptions data hook
   const {
     subscriptions,
@@ -152,11 +164,11 @@ export function SubscriptionsPage() {
     fetchSubscriptions,
     manualRenewSubscription
   } = useSubscriptionStore()
-  
+
   // 本地筛选状态：分离原始数据和显示数据
   const [allSubscriptions, setAllSubscriptions] = useState<SubscriptionData[]>([])
   const [filteredSubscriptions, setFilteredSubscriptions] = useState<SubscriptionData[]>([])
-  
+
   // Get categories from Edge Function data - 只显示有订阅的分类
   const usedCategories = categories
     .map(cat => ({
@@ -164,10 +176,10 @@ export function SubscriptionsPage() {
       value: cat.value,
       label: cat.label
     }))
-    .filter(category => 
+    .filter(category =>
       subscriptions.some(s => s.category?.value === category.value)
     )
-  
+
   // Get unique billing cycles in use - 基于原始数据计算
   const getUniqueBillingCycles = () => {
     const billingCycles = allSubscriptions.map(sub => sub.billingCycle)
@@ -176,7 +188,7 @@ export function SubscriptionsPage() {
       label: cycle.charAt(0).toUpperCase() + cycle.slice(1)
     }))
   }
-  
+
   const usedBillingCycles = getUniqueBillingCycles()
 
   /**
@@ -198,7 +210,7 @@ export function SubscriptionsPage() {
    */
   const filterByCategoriesLocal = useCallback((subscriptions: SubscriptionData[], categories: string[]) => {
     if (categories.length === 0) return subscriptions
-    return subscriptions.filter(sub => 
+    return subscriptions.filter(sub =>
       sub.category && categories.includes(sub.category.value)
     )
   }, [])
@@ -223,7 +235,7 @@ export function SubscriptionsPage() {
   const filterBySearchLocal = useCallback((subscriptions: SubscriptionData[], searchTerm: string) => {
     if (!searchTerm.trim()) return subscriptions
     const term = searchTerm.toLowerCase()
-    return subscriptions.filter(sub => 
+    return subscriptions.filter(sub =>
       sub.name.toLowerCase().includes(term) ||
       sub.notes?.toLowerCase().includes(term) ||
       sub.category?.label.toLowerCase().includes(term)
@@ -237,19 +249,19 @@ export function SubscriptionsPage() {
    */
   const applyAllFilters = useCallback((subscriptions: SubscriptionData[]) => {
     let filtered = subscriptions
-    
+
     // 应用状态筛选
     filtered = filterByStatusLocal(filtered, currentView)
-    
+
     // 应用分类筛选
     filtered = filterByCategoriesLocal(filtered, selectedCategories)
-    
+
     // 应用账单周期筛选
     filtered = filterByBillingCyclesLocal(filtered, selectedBillingCycles)
-    
+
     // 应用搜索筛选
     filtered = filterBySearchLocal(filtered, searchTerm)
-    
+
     return filtered
   }, [currentView, selectedCategories, selectedBillingCycles, searchTerm, filterByStatusLocal, filterByCategoriesLocal, filterByBillingCyclesLocal, filterBySearchLocal])
 
@@ -273,9 +285,9 @@ export function SubscriptionsPage() {
   const handleAddSubscription = useCallback(async (subscription: Omit<Subscription, "id" | "lastBillingDate">) => {
     // 设置loading状态
     setOperationLoading('add', `Adding ${subscription.name}...`)
-    
+
     const { data: newSubscription, error } = await addSubscription(subscription)
-    
+
     if (error) {
       toast({
         title: "Error adding subscription",
@@ -285,7 +297,7 @@ export function SubscriptionsPage() {
       clearOperationLoading()
       return
     }
-    
+
     console.debug('添加新订阅:', newSubscription)
 
     // 直接在本地状态中添加新订阅，避免重新获取所有数据
@@ -313,11 +325,11 @@ export function SubscriptionsPage() {
       // 同步更新本地原始数据
       setAllSubscriptions(prev => [...prev, subscriptionData])
     }
-    
+
     // 显示成功对话框而不是简单的 toast
     setNewlyCreatedSubscription(newSubscription)
     setShowSuccessDialog(true)
-    
+
     clearOperationLoading()
   }, [addSubscription, addLocalSubscription, toast, setOperationLoading, clearOperationLoading])
 
@@ -371,7 +383,7 @@ export function SubscriptionsPage() {
     try {
       // 设置loading状态
       setOperationLoading('auto-generate', `Generating payment records for ${newlyCreatedSubscription.name}...`)
-      
+
       // 准备订阅信息
       const subscriptionInfo: AutoGenerateSubscriptionInfo = {
         id: newlyCreatedSubscription.id,
@@ -384,7 +396,7 @@ export function SubscriptionsPage() {
         nextBillingDate: newlyCreatedSubscription.nextBillingDate,
         lastBillingDate: newlyCreatedSubscription.lastBillingDate
       }
-      
+
       // 调用自动生成服务
       const result = await PaymentRecordService.autoGeneratePaymentRecords(
         subscriptionInfo,
@@ -393,7 +405,7 @@ export function SubscriptionsPage() {
           return { error }
         }
       )
-      
+
       if (result.success) {
         // 更新本地订阅数据的last_billing_date和next_billing_date
         if (result.lastBillingDateUpdated && result.newLastBillingDate) {
@@ -405,17 +417,17 @@ export function SubscriptionsPage() {
               nextBillingDate: result.newNextBillingDate || currentSubscription.nextBillingDate
             }
             updateLocalSubscription(updatedData)
-            setAllSubscriptions(prev => 
+            setAllSubscriptions(prev =>
               prev.map(sub => sub.id === newlyCreatedSubscription.id ? updatedData : sub)
             )
           }
         }
-        
+
         toast({
           title: "Payment Records Generated Successfully",
           description: `Generated ${result.generatedCount} payment record(s) for ${newlyCreatedSubscription.name}.`,
         })
-        
+
         // 关闭成功对话框
         setShowSuccessDialog(false)
         setNewlyCreatedSubscription(null)
@@ -457,16 +469,16 @@ export function SubscriptionsPage() {
       status: paymentData.status as 'success' | 'failed' | 'pending',
       notes: paymentData.notes
     }
-    
+
     await addPaymentRecord(params)
   }, [addPaymentRecord])
 
   // Handler for updating subscription
   const handleUpdateSubscription = useCallback(async (id: string, data: Omit<Subscription, "id" | "lastBillingDate">) => {
     setOperationLoading('edit', `Updating ${data.name}...`)
-    
+
     const { error } = await updateSubscription(id, data)
-    
+
     if (error) {
       toast({
         title: "Error updating subscription",
@@ -476,24 +488,24 @@ export function SubscriptionsPage() {
       clearOperationLoading()
       return
     }
-    
+
     // Update local state instead of refreshing
-     const updatedSubscription = subscriptions.find(sub => sub.id === id)
-     if (updatedSubscription) {
-       const updatedData = { ...updatedSubscription, ...data }
-       updateLocalSubscription(updatedData)
-       // 同步更新本地原始数据
-       setAllSubscriptions(prev => 
-         prev.map(sub => sub.id === id ? updatedData : sub)
-       )
-     }
-    
+    const updatedSubscription = subscriptions.find(sub => sub.id === id)
+    if (updatedSubscription) {
+      const updatedData = { ...updatedSubscription, ...data }
+      updateLocalSubscription(updatedData)
+      // 同步更新本地原始数据
+      setAllSubscriptions(prev =>
+        prev.map(sub => sub.id === id ? updatedData : sub)
+      )
+    }
+
     setEditingSubscription(null)
     toast({
       title: "Subscription updated",
       description: `${data.name} has been updated successfully.`
     })
-    
+
     clearOperationLoading()
   }, [updateSubscription, updateLocalSubscription, setOperationLoading, clearOperationLoading, toast, subscriptions, setAllSubscriptions, setEditingSubscription])
 
@@ -508,7 +520,7 @@ export function SubscriptionsPage() {
 
   // State for delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
-  
+
   // Confirmation dialog hook - 定义在前面避免循环依赖
   const deleteConfirmation = useConfirmation({
     title: "Delete Subscription",
@@ -516,11 +528,11 @@ export function SubscriptionsPage() {
     confirmText: "Delete",
     onConfirm: async () => {
       if (!deleteTarget) return
-      
+
       setOperationLoading('delete', `Deleting ${deleteTarget.name}...`)
-      
+
       const { error } = await deleteSubscription(deleteTarget.id)
-      
+
       if (error) {
         toast({
           title: "Error deleting subscription",
@@ -530,30 +542,30 @@ export function SubscriptionsPage() {
         clearOperationLoading()
         return
       }
-      
+
       // Remove from local state instead of refreshing
       deleteLocalSubscription(deleteTarget.id)
       // 同步更新本地原始数据
       setAllSubscriptions(prev => prev.filter(sub => sub.id !== deleteTarget.id))
-      
+
       toast({
         title: "Subscription deleted",
         description: `${deleteTarget.name} has been deleted.`,
         variant: "destructive"
       })
-      
+
       clearOperationLoading()
       setDeleteTarget(null)
       // 对话框会在操作完成后自动关闭
     },
     isLoading: operationLoading.isLoading && operationLoading.action === 'delete',
   })
-  
+
   // Handler to open delete confirmation
   const handleDeleteClick = (id: string) => {
     const subscription = subscriptions.find(sub => sub.id === id)
     if (!subscription) return
-    
+
     setDeleteTarget({ id, name: subscription.name })
     deleteConfirmation.openDialog()
   }
@@ -614,7 +626,7 @@ export function SubscriptionsPage() {
         }
         updateLocalSubscription(updatedData);
         // 同步更新本地原始数据
-        setAllSubscriptions(prev => 
+        setAllSubscriptions(prev =>
           prev.map(sub => sub.id === id ? updatedData : sub)
         )
       }
@@ -656,21 +668,21 @@ export function SubscriptionsPage() {
       }
 
       // Update local state instead of refreshing
-       if (renewalData) {
-         const currentSubscription = subscriptions.find(sub => sub.id === id)
-         if (currentSubscription) {
-           const updatedData = {
-             ...currentSubscription,
-             nextBillingDate: renewalData.newNextBilling,
-             lastBillingDate: renewalData.newLastBilling
-           }
-           updateLocalSubscription(updatedData)
-           // 同步更新本地原始数据
-           setAllSubscriptions(prev => 
-             prev.map(sub => sub.id === id ? updatedData : sub)
-           )
-         }
-       }
+      if (renewalData) {
+        const currentSubscription = subscriptions.find(sub => sub.id === id)
+        if (currentSubscription) {
+          const updatedData = {
+            ...currentSubscription,
+            nextBillingDate: renewalData.newNextBilling,
+            lastBillingDate: renewalData.newLastBilling
+          }
+          updateLocalSubscription(updatedData)
+          // 同步更新本地原始数据
+          setAllSubscriptions(prev =>
+            prev.map(sub => sub.id === id ? updatedData : sub)
+          )
+        }
+      }
 
       toast({
         title: "Subscription renewed successfully",
@@ -696,11 +708,11 @@ export function SubscriptionsPage() {
     const newCategories = selectedCategories.includes(categoryValue)
       ? selectedCategories.filter(c => c !== categoryValue)
       : [...selectedCategories, categoryValue]
-    
+
     setSelectedCategories(newCategories)
     // 本地筛选会通过useEffect自动触发
   }, [selectedCategories])
-  
+
   /**
    * 本地账单周期筛选切换处理器 - 切换账单周期筛选状态
    * @param billingCycle - 账单周期
@@ -709,7 +721,7 @@ export function SubscriptionsPage() {
     const newBillingCycles = selectedBillingCycles.includes(billingCycle)
       ? selectedBillingCycles.filter(c => c !== billingCycle)
       : [...selectedBillingCycles, billingCycle]
-    
+
     setSelectedBillingCycles(newBillingCycles)
     // 本地筛选会通过useEffect自动触发
   }, [selectedBillingCycles])
@@ -731,7 +743,7 @@ export function SubscriptionsPage() {
       // 由于 bulkAddSubscriptions 不返回导入的数据，我们需要重新获取订阅列表
       // 这将触发 useEffect 来更新本地状态
       await fetchSubscriptions();
-      
+
       toast({
         title: "Import successful",
         description: `${newSubscriptions.length} subscriptions have been imported.`,
@@ -743,7 +755,7 @@ export function SubscriptionsPage() {
   const handleExportSubscriptions = () => {
     setShowExportModal(true)
   }
-  
+
   // Get billing cycle badge variant
   const getBillingCycleBadgeVariant = (billingCycle: BillingCycle) => {
     switch (billingCycle) {
@@ -774,7 +786,40 @@ export function SubscriptionsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Subscriptions</h1>
+          <div className="flex items-center gap-3 mb-2">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Subscriptions</h1>
+            {/* Plan Badge */}
+            {subscriptionQuota && (
+              <Badge
+                variant={isFreePlan ? "default" : "default"}
+                className={isFreePlan ? "bg-green-500 text-white" : "bg-amber-500 text-white"}
+              >
+                {isFreePlan ? (
+                  <>Free Plan</>
+                ) : (
+                  <>
+                    <Crown className="h-3 w-3 mr-1" />
+                    Premium Plan
+                  </>
+                )}
+              </Badge>
+            )}
+          </div>
+
+          {/* Quota Status Display */}
+          {/* {subscriptionQuota && (
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-sm text-muted-foreground">
+                {subscriptionQuota.used}/{subscriptionQuota.limit} subscriptions used
+              </span>
+              {isNearLimit && (
+                <Badge variant="destructive" className="text-xs">
+                  {isAtLimit ? "Limit Reached" : "Near Limit"}
+                </Badge>
+              )}
+            </div>
+          )} */}
+
           <p className="text-muted-foreground">
             Manage all your subscription services
           </p>
@@ -783,12 +828,17 @@ export function SubscriptionsPage() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button onClick={() => setShowAddForm(true)} size="icon">
+                <Button
+                  onClick={() => setShowAddForm(true)}
+                  size="icon"
+                  disabled={isAtLimit}
+                  className={isAtLimit ? "opacity-50 cursor-not-allowed" : ""}
+                >
                   <Plus className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Add Subscription</p>
+                <p>{isAtLimit ? 'Subscription Limit Reached' : 'Add Subscription'}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -796,12 +846,20 @@ export function SubscriptionsPage() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" onClick={() => setShowImportModal(true)} size="icon">
-                  <Upload className="h-4 w-4" />
-                </Button>
+                <span className={!hasExportPermission ? "cursor-not-allowed" : ""}>
+                  <Button 
+                    variant="outline" 
+                    onClick={hasExportPermission ? () => setShowImportModal(true) : undefined}
+                    size="icon"
+                    disabled={!hasExportPermission}
+                    className={!hasExportPermission ? "opacity-50 pointer-events-none" : ""}
+                  >
+                    <Upload className="h-4 w-4" />
+                  </Button>
+                </span>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Import</p>
+                <p>{hasExportPermission ? 'Import' : 'Import (Premium Feature)'}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -809,12 +867,20 @@ export function SubscriptionsPage() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="outline" onClick={handleExportSubscriptions} size="icon">
-                  <Download className="h-4 w-4" />
-                </Button>
+                <span className={!hasExportPermission ? "cursor-not-allowed" : ""}>
+                  <Button
+                    variant="outline"
+                    onClick={hasExportPermission ? handleExportSubscriptions : undefined}
+                    size="icon"
+                    disabled={!hasExportPermission}
+                    className={!hasExportPermission ? "opacity-50 pointer-events-none" : ""}
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </span>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Export</p>
+                <p>{hasExportPermission ? 'Export' : 'Export (Premium Feature)'}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -1036,7 +1102,7 @@ export function SubscriptionsPage() {
                     strokeLinejoin="round"
                     className="h-3 w-3"
                   >
-                    <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
                   </svg>
                 </button>
               </Badge>
@@ -1070,7 +1136,7 @@ export function SubscriptionsPage() {
                     strokeLinejoin="round"
                     className="h-3 w-3 text-white"
                   >
-                    <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
+                    <path d="M18 6 6 18" /><path d="m6 6 12 12" />
                   </svg>
                 </button>
               </Badge>
@@ -1122,13 +1188,24 @@ export function SubscriptionsPage() {
             }
           </p>
           <div className="flex gap-2">
-            <Button onClick={() => setShowAddForm(true)}>
+            <Button
+              onClick={() => setShowAddForm(true)}
+              disabled={isAtLimit}
+              className={isAtLimit ? "opacity-50 cursor-not-allowed" : ""}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Add Subscription
+              {isAtLimit && <span className="ml-1 text-xs">(Limit Reached)</span>}
             </Button>
-            <Button variant="outline" onClick={() => setShowImportModal(true)}>
+            <Button
+              variant="outline"
+              onClick={hasExportPermission ? () => setShowImportModal(true) : undefined}
+              disabled={!hasExportPermission}
+              className={!hasExportPermission ? "opacity-50 cursor-not-allowed" : ""}
+            >
               <Upload className="h-4 w-4 mr-2" />
               Import Subscriptions
+              {!hasExportPermission && <span className="ml-1 text-xs">(Premium)</span>}
             </Button>
           </div>
         </div>
@@ -1145,7 +1222,7 @@ export function SubscriptionsPage() {
                 nextBillingDate: subscription.nextBillingDate,
                 lastBillingDate: subscription.lastBillingDate,
                 amount: subscription.amount, // 
-                currency: subscription.currency, 
+                currency: subscription.currency,
                 convertedAmount: subscription.convertedAmount,
                 paymentMethodId: subscription.paymentMethodId,
                 startDate: subscription.startDate,
@@ -1157,7 +1234,7 @@ export function SubscriptionsPage() {
                 category: subscription.category,
                 paymentMethod: subscription.paymentMethod
               }
-              
+
               return (
                 <SubscriptionCard
                   key={subscription.id}
@@ -1171,7 +1248,7 @@ export function SubscriptionsPage() {
               )
             })}
           </div>
-          
+
           {/* 操作loading覆盖层 - 使用简洁样式 */}
           {operationLoading.isLoading && (
             <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
@@ -1275,15 +1352,15 @@ export function SubscriptionsPage() {
             startDate: selectedSubscription.startDate || undefined
           }}
           onSubmit={handlePaymentSubmit as (data: {
-          subscriptionId: string
-          paymentDate: string
-          amountPaid: number
-          currency: string
-          billingPeriodStart: string
-          billingPeriodEnd: string
-          status: string
-          notes?: string
-        }) => Promise<void>}
+            subscriptionId: string
+            paymentDate: string
+            amountPaid: number
+            currency: string
+            billingPeriodStart: string
+            billingPeriodEnd: string
+            status: string
+            notes?: string
+          }) => Promise<void>}
         />
       )}
 

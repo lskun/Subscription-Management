@@ -13,9 +13,17 @@ export enum Permission {
   EDIT_SUBSCRIPTIONS = 'edit_subscriptions',
   DELETE_SUBSCRIPTIONS = 'delete_subscriptions',
   
-  // Analytics features
+  // Analytics features - 细分权限
   VIEW_ANALYTICS = 'view_analytics',
+  VIEW_MONTHLY_EXPENSES = 'view_monthly_expenses',
+  VIEW_QUARTERLY_EXPENSES = 'view_quarterly_expenses', 
+  VIEW_YEARLY_EXPENSES = 'view_yearly_expenses',
+  VIEW_CATEGORY_EXPENSES = 'view_category_expenses',
+  VIEW_ADVANCED_ANALYTICS = 'view_advanced_analytics',
+  
+  // Data operations
   EXPORT_DATA = 'export_data',
+  EXPORT_SUBSCRIPTION_DATA = 'export_subscription_data',
   IMPORT_DATA = 'import_data',
   
   // Advanced features
@@ -75,8 +83,8 @@ export class UserPermissionService {
   static async getUserSubscriptionPlan(userId?: string): Promise<UserSubscriptionPlan | null> {
     try {
       const { useSettingsStore } = await import('@/store/settingsStore');
-    const user = await useSettingsStore.getState().getCurrentUser();
-    const targetUserId = userId || user?.id
+      const user = await useSettingsStore.getState().getCurrentUser();
+      const targetUserId = userId || user?.id
       
       if (!targetUserId) {
         throw new Error('User not logged in')
@@ -245,38 +253,15 @@ export class UserPermissionService {
   }
 
   /**
-   * Record quota usage
+   * Record quota usage (simplified - no database recording needed)
    */
   static async recordQuotaUsage(
     quotaType: QuotaType,
     amount: number = 1,
     userId?: string
   ): Promise<void> {
-    try {
-      const { useSettingsStore } = await import('@/store/settingsStore');
-    const user = await useSettingsStore.getState().getCurrentUser();
-    const targetUserId = userId || user?.id
-      
-      if (!targetUserId) {
-        throw new Error('User not logged in')
-      }
-
-      // Record usage to database
-      const { error } = await supabase
-        .from('user_quota_usage')
-        .insert({
-          user_id: targetUserId,
-          quota_type: quotaType,
-          amount,
-          recorded_at: new Date().toISOString()
-        })
-
-      if (error) {
-        console.error('Failed to record quota usage:', error)
-      }
-    } catch (error) {
-      console.error('Error recording quota usage:', error)
-    }
+    // No database recording needed as per user requirement
+    console.log(`Quota usage recorded: ${quotaType}, amount: ${amount}, userId: ${userId}`)
   }
 
   /**
@@ -334,9 +319,28 @@ export class UserPermissionService {
       Permission.VIEW_ANALYTICS
     )
 
-    // Add permissions based on feature characteristics
+    // Analytics permissions - 基础权限(免费版有)
+    permissions.push(
+      Permission.VIEW_MONTHLY_EXPENSES,
+      Permission.VIEW_QUARTERLY_EXPENSES
+    )
+
+    // Premium analytics features
+    if (features.yearly_expenses) {
+      permissions.push(Permission.VIEW_YEARLY_EXPENSES)
+    }
+
+    if (features.category_expenses) {
+      permissions.push(Permission.VIEW_CATEGORY_EXPENSES)
+    }
+
+    if (features.advanced_analytics) {
+      permissions.push(Permission.VIEW_ADVANCED_ANALYTICS)
+    }
+
+    // Data operations
     if (features.data_export) {
-      permissions.push(Permission.EXPORT_DATA)
+      permissions.push(Permission.EXPORT_DATA, Permission.EXPORT_SUBSCRIPTION_DATA)
     }
 
     if (features.data_import) {
@@ -418,7 +422,6 @@ export class UserPermissionService {
             .from('subscriptions')
             .select('*', { count: 'exact', head: true })
             .eq('user_id', userId)
-            .eq('status', 'active')
           
           return subscriptionCount || 0
 

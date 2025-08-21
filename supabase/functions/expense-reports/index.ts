@@ -62,11 +62,8 @@ serve(async (req) => {
     // 解析请求参数 - 保持与原始函数一致的参数名
     const { 
       targetCurrency = 'CNY', 
-      monthlyStartDate, 
       monthlyEndDate, 
-      yearlyStartDate, 
       yearlyEndDate, 
-      quarterlyStartDate, 
       quarterlyEndDate, 
       includeMonthlyExpenses = true, 
       includeYearlyExpenses = true, 
@@ -75,6 +72,56 @@ serve(async (req) => {
       includeExpenseInfo = true 
     } = await req.json().catch(() => ({}));
 
+    // 检查用户订阅计划和权限
+    const { data: userSubscription, error: _subscriptionError } = await createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
+      .from('user_subscriptions')
+      .select(`
+        *,
+        subscription_plans (
+          id,
+          name,
+          features,
+          limits
+        )
+      `)
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .single();
+
+    // 如果没有订阅计划，默认为基础权限
+    const planFeatures = userSubscription?.subscription_plans?.features || {};
+    const isFreePlan = !planFeatures.yearly_expenses && !planFeatures.category_expenses;
+    
+    console.log('用户计划信息:', {
+      planName: userSubscription?.subscription_plans?.name,
+      isFreePlan,
+      features: planFeatures
+    });
+
+    // 根据用户计划权限覆盖参数
+    const actualIncludeMonthlyExpenses = includeMonthlyExpenses; // 基础权限，所有用户都有
+    const actualIncludeQuarterlyExpenses = includeQuarterlyExpenses; // 基础权限，所有用户都有
+    const actualIncludeYearlyExpenses = includeYearlyExpenses && planFeatures.yearly_expenses;
+    const actualIncludeCategoryExpenses = includeCategoryExpenses && planFeatures.category_expenses;
+    const actualIncludeExpenseInfo = includeExpenseInfo; // 基础权限，但高级功能需要权限
+
+    console.log('权限检查结果:', {
+      monthly: actualIncludeMonthlyExpenses,
+      quarterly: actualIncludeQuarterlyExpenses,
+      yearly: actualIncludeYearlyExpenses,
+      category: actualIncludeCategoryExpenses,
+      expenseInfo: actualIncludeExpenseInfo
+    });
+
+
+    // 双路径控制：使用环境变量决定使用哪种实现
+    // @ts-ignore - Deno global is available in Edge Functions runtime
+    const USE_COMPREHENSIVE_FUNCTION = Deno.env.get('USE_COMPREHENSIVE_FUNCTION') === 'true';
+    
+    console.log('执行路径选择:', USE_COMPREHENSIVE_FUNCTION ? '新优化路径' : '原有路径');
 
     // 构建响应数据 - 与原始函数保持一致的结构
     const response: any = {
@@ -82,9 +129,169 @@ serve(async (req) => {
       timestamp: new Date().toISOString()
     };
 
-    console.log('开始调用优化的数据库函数...');
-    
-    // 使用优化的数据库函数获取基础数据
+    if (USE_COMPREHENSIVE_FUNCTION) {
+      // ====== 新优化路径：使用综合数据库函数 ======
+      console.log('使用综合数据库函数获取所有数据...');
+      
+      const comprehensiveStartTime = Date.now();
+      const { data: comprehensiveData, error: comprehensiveError } = await supabaseClient
+        .rpc('get_comprehensive_expense_data', {
+          p_user_id: user.id,
+          p_target_currency: targetCurrency,
+          p_include_monthly: actualIncludeMonthlyExpenses,
+          p_include_categories: actualIncludeCategoryExpenses,
+          p_include_quarterly: actualIncludeQuarterlyExpenses,
+          p_include_yearly: actualIncludeYearlyExpenses
+        });
+
+      if (comprehensiveError) {
+        console.error('综合数据库函数调用错误:', comprehensiveError);
+        throw comprehensiveError;
+      }
+
+      const comprehensiveQueryTime = Date.now() - comprehensiveStartTime;
+      console.log(`综合函数执行时间: ${comprehensiveQueryTime}ms`);
+
+      // 从综合函数结果中提取数据并格式化为现有响应格式
+      if (actualIncludeMonthlyExpenses && comprehensiveData?.monthly) {
+        response.monthlyExpenses = comprehensiveData.monthly.map((item: any) => ({
+          month: item.period,
+          year: item.year,
+          total: Number(item.paymentAmount || item.subscriptionAmount || 0),
+          currency: targetCurrency,
+          activeSubscriptionCount: Number(item.activeSubscriptions || 0)
+        }));
+
+        // 构建 expenseInfo.monthly - 取最近4个月
+        if (actualIncludeExpenseInfo) {
+          const recentFourMonths = response.monthlyExpenses.slice(-4);
+          const expenseMonthly = recentFourMonths.map((r: any, idx: number) => {
+            const prev = idx > 0 ? recentFourMonths[idx - 1] : null;
+            const cur = Number(r.total) || 0;
+            const prevVal = prev ? Number(prev.total) || 0 : 0;
+            const change = prevVal > 0 ? Math.round(((cur - prevVal) / prevVal) * 1000) / 10 : 0;
+            
+            // 从原始数据中获取paymentCount
+            const originalItem = comprehensiveData.monthly.find((item: any) => item.period === r.month);
+            return {
+              period: r.month,
+              amount: cur,
+              change: change,
+              currency: targetCurrency,
+              paymentCount: originalItem ? (originalItem.paymentCount || 0) : 0
+            };
+          });
+          response.expenseInfo = response.expenseInfo || { monthly: [], quarterly: [], yearly: [] };
+          response.expenseInfo.monthly = expenseMonthly;
+        }
+      }
+
+      if (actualIncludeQuarterlyExpenses && comprehensiveData?.quarterly) {
+        response.quarterlyExpenses = comprehensiveData.quarterly
+          .map((item: any) => ({
+            quarter: Number(item.quarter),
+            year: Number(item.year),
+            total: Number(item.amount || 0),
+            currency: targetCurrency,
+            activeSubscriptionCount: Number(item.subscriptionCount || 0)
+          }))
+          .sort((a, b) => {
+            // 按年份升序，然后按季度升序排序
+            if (a.year !== b.year) {
+              return a.year - b.year;
+            }
+            return a.quarter - b.quarter;
+          });
+
+        // 构建 expenseInfo.quarterly
+        if (actualIncludeExpenseInfo) {
+          const expenseQuarterly = response.quarterlyExpenses.map((r: any, idx: number) => {
+            const prev = idx > 0 ? response.quarterlyExpenses[idx - 1] : null;
+            const cur = Number(r.total) || 0;
+            const prevVal = prev ? Number(prev.total) || 0 : 0;
+            const change = prevVal > 0 ? Math.round(((cur - prevVal) / prevVal) * 1000) / 10 : 0;
+            
+            // 从原始数据中获取paymentCount
+            const originalItem = comprehensiveData.quarterly.find((item: any) => 
+              item.year === r.year && item.quarter === r.quarter);
+            return {
+              period: `${r.year}-Q${r.quarter}`,
+              amount: cur,
+              change: change,
+              currency: targetCurrency,
+              paymentCount: originalItem ? (originalItem.paymentCount || 0) : 0
+            };
+          });
+          response.expenseInfo = response.expenseInfo || { monthly: [], quarterly: [], yearly: [] };
+          response.expenseInfo.quarterly = expenseQuarterly;
+        }
+      }
+
+      if (actualIncludeYearlyExpenses && comprehensiveData?.yearly) {
+        response.yearlyExpenses = comprehensiveData.yearly.map((item: any) => ({
+          year: Number(item.year),
+          total: Number(item.amount || 0),
+          currency: targetCurrency,
+          activeSubscriptionCount: Number(item.subscriptionCount || 0)
+        }));
+
+        // 构建 expenseInfo.yearly
+        if (includeExpenseInfo) {
+          const expenseYearly = response.yearlyExpenses.map((r: any, idx: number) => {
+            const prev = idx > 0 ? response.yearlyExpenses[idx - 1] : null;
+            const cur = Number(r.total) || 0;
+            const prevVal = prev ? Number(prev.total) || 0 : 0;
+            const change = prevVal > 0 ? Math.round(((cur - prevVal) / prevVal) * 1000) / 10 : 0;
+            
+            // 从原始数据中获取paymentCount
+            const originalItem = comprehensiveData.yearly.find((item: any) => item.year === r.year);
+            return {
+              period: String(r.year),
+              amount: cur,
+              change: change,
+              currency: targetCurrency,
+              paymentCount: originalItem ? (originalItem.paymentCount || 0) : 0
+            };
+          });
+          response.expenseInfo = response.expenseInfo || { monthly: [], quarterly: [], yearly: [] };
+          response.expenseInfo.yearly = expenseYearly;
+        }
+      }
+
+      if (actualIncludeCategoryExpenses && comprehensiveData?.categoryExpenses) {
+        response.categoryExpenses = comprehensiveData.categoryExpenses.map((item: any) => ({
+          category: item.category,
+          label: item.label,
+          total: Number(item.total || 0),
+          currency: targetCurrency,
+          subscriptionCount: Number(item.subscriptionCount || 0)
+        }));
+      }
+
+      // 生成兼容性的monthlyCategoryExpenses数据
+      if (actualIncludeMonthlyExpenses && actualIncludeCategoryExpenses && comprehensiveData?.monthly) {
+        response.monthlyCategoryExpenses = comprehensiveData.monthly.map((item: any) => ({
+          month: item.period,
+          monthKey: item.period,
+          year: Number(item.year),
+          categories: item.categories || {},
+          total: Number(item.categoryTotal || 0)
+        }));
+      }
+
+      // 添加性能指标（新路径）
+      response.performance = {
+        queryTime: comprehensiveQueryTime,
+        method: 'comprehensive_function'
+      };
+
+      console.log(`综合函数路径完成，总耗时: ${comprehensiveQueryTime}ms`);
+
+    } else {
+      // ====== 原有路径：保持现有逻辑完全不变 ======
+      console.log('使用原有逻辑...');
+      
+      // 使用优化的数据库函数获取基础数据
     const { data: optimizedData, error: dbError } = await supabaseClient
       .rpc('get_expense_summary_optimized', {
         p_user_id: user.id,
@@ -426,7 +633,8 @@ serve(async (req) => {
     };
 
 
-    console.log(`费用报告计算完成，耗时: ${Date.now() - startTime}ms`);
+      console.log(`费用报告计算完成，耗时: ${Date.now() - startTime}ms`);
+    }
     
     // 返回与原始函数完全一致的格式
     return new Response(JSON.stringify({

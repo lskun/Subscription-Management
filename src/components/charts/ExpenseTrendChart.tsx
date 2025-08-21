@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button"
 import { ChartContainer, ChartConfig } from "@/components/ui/chart"
 import { formatCurrencyAmount } from "@/utils/currency"
 import { MonthlyExpense } from "@/services/supabaseAnalyticsService"
-import { TrendingUp, TrendingDown, LineChart as LineChartIcon, BarChart3 } from "lucide-react"
+import { TrendingUp, TrendingDown, LineChart as LineChartIcon, BarChart3, Lock, Crown } from "lucide-react"
 import { useState } from "react"
 
 interface ExpenseTrendChartProps {
@@ -12,6 +12,8 @@ interface ExpenseTrendChartProps {
   categoryData?: CategoryExpenseData[] // 新增：按类别分组的数据
   currency: string
   className?: string
+  hasMonthlyPermission?: boolean
+  hasCategoryPermission?: boolean
 }
 
 // 新增：类别数据类型
@@ -57,8 +59,32 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
-export function ExpenseTrendChart({ data, categoryData, currency, className }: ExpenseTrendChartProps) {
+export function ExpenseTrendChart({ 
+  data, 
+  categoryData, 
+  currency, 
+  className, 
+  hasMonthlyPermission = true,
+  hasCategoryPermission = true 
+}: ExpenseTrendChartProps) {
   const [chartType, setChartType] = useState<'line' | 'groupedBar'>('line')
+
+  // Premium Feature 提示组件
+  const PremiumFeatureCard = ({ feature }: { feature: string }) => (
+    <div className="flex flex-col items-center justify-center h-[300px] text-center">
+      <Lock className="h-12 w-12 text-amber-500 mb-4" />
+      <h3 className="text-lg font-semibold text-amber-700 mb-2">
+        {feature} - Premium Feature
+      </h3>
+      <p className="text-muted-foreground mb-4 max-w-md">
+        Upgrade to Premium to unlock detailed {feature.toLowerCase()} and trend analysis.
+      </p>
+      <Button className="bg-amber-500 hover:bg-amber-600">
+        <Crown className="h-4 w-4 mr-2" />
+        Upgrade to Premium
+      </Button>
+    </div>
+  )
   
   // 获取所有类别名称（用于分组柱状图）
   const allCategories = categoryData ? 
@@ -269,33 +295,83 @@ export function ExpenseTrendChart({ data, categoryData, currency, className }: E
         </div>
       </CardHeader>
       <CardContent className="px-2 sm:px-6">
-        {(chartType === 'line' ? data.length === 0 : !categoryData || categoryData.length === 0) ? (
-          <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-            {chartType === 'line' 
-              ? 'No expense data available'
-              : 'No category data available'
-            }
-          </div>
-        ) : (
-          <>
+        {chartType === 'line' ? (
+          !hasMonthlyPermission ? (
+            <PremiumFeatureCard feature="Monthly Expense Trends" />
+          ) : data.length === 0 ? (
+            <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+              No expense data available
+            </div>
+          ) : (
             <ChartContainer config={chartConfig} className="h-[250px] sm:h-[300px] w-full overflow-hidden">
-              {renderChart()}
+              <LineChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="monthKey" 
+                  tickLine={false}
+                  axisLine={false}
+                  className="text-xs"
+                />
+                <YAxis 
+                  tickLine={false}
+                  axisLine={false} 
+                  className="text-xs"
+                  tickFormatter={(value) => formatCurrencyAmount(value, currency)}
+                />
+                <Tooltip 
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="rounded-lg border bg-background p-2 shadow-sm">
+                          <p className="text-xs text-muted-foreground">{label}</p>
+                          <p className="text-sm font-medium">
+                            {formatCurrencyAmount(payload[0].value as number, currency)}
+                          </p>
+                        </div>
+                      )
+                    }
+                    return null
+                  }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="amount" 
+                  stroke="var(--color-amount)" 
+                  strokeWidth={2}
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              </LineChart>
             </ChartContainer>
-            {/* 分组柱状图图例 */}
-            {chartType === 'groupedBar' && allCategories.length > 0 && (
-              <div className="flex flex-wrap gap-4 justify-center mt-4 pt-4 border-t">
-                {allCategories.map((category, index) => (
-                  <div key={category} className="flex items-center gap-2 text-sm">
-                    <div 
-                      className="h-3 w-3 rounded-sm" 
-                      style={{ backgroundColor: getCategoryColor(category, index) }}
-                    />
-                    <span className="text-muted-foreground capitalize">{category}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
+          )
+        ) : (
+          !hasCategoryPermission ? (
+            <PremiumFeatureCard feature="Category Analysis" />
+          ) : (!categoryData || categoryData.length === 0) ? (
+            <div className="flex items-center justify-center h-[300px] text-muted-foreground">
+              No category data available
+            </div>
+          ) : (
+            <>
+              <ChartContainer config={chartConfig} className="h-[250px] sm:h-[300px] w-full overflow-hidden">
+                {renderChart()}
+              </ChartContainer>
+              {/* 分组柱状图图例 */}
+              {chartType === 'groupedBar' && allCategories.length > 0 && (
+                <div className="flex flex-wrap gap-4 justify-center mt-4 pt-4 border-t">
+                  {allCategories.map((category, index) => (
+                    <div key={category} className="flex items-center gap-2 text-sm">
+                      <div 
+                        className="h-3 w-3 rounded-sm" 
+                        style={{ backgroundColor: getCategoryColor(category, index) }}
+                      />
+                      <span className="text-muted-foreground capitalize">{category}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )
         )}
       </CardContent>
     </Card>

@@ -7,7 +7,9 @@ import {
   DollarSign,
   TrendingUp,
   Eye,
-  ChevronRight
+  ChevronRight,
+  Lock,
+  Crown
 } from "lucide-react"
 import { ExpenseDetailDialog } from "./ExpenseDetailDialog"
 
@@ -30,6 +32,9 @@ interface ExpenseInfoCardsProps {
   currency: string
   isLoading?: boolean
   className?: string
+  hasMonthlyPermission?: boolean
+  hasQuarterlyPermission?: boolean
+  hasYearlyPermission?: boolean
 }
 
 export function ExpenseInfoCards({
@@ -38,11 +43,24 @@ export function ExpenseInfoCards({
   yearlyData,
   currency,
   isLoading = false,
-  className
+  className,
+  hasMonthlyPermission = true,
+  hasQuarterlyPermission = true,
+  hasYearlyPermission = true
 }: ExpenseInfoCardsProps) {
   const [selectedPeriod, setSelectedPeriod] = useState<ExpenseInfoData | null>(null)
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false)
 
+  const PremiumFeatureCard = ({ feature }: { feature: string }) => (
+    <Card className="border-dashed border-amber-200">
+      <CardContent className="flex flex-col items-center justify-center h-32 text-center">
+        <Lock className="h-8 w-8 text-amber-500 mb-2" />
+        <h4 className="font-semibold text-amber-700 mb-1">
+          {feature} - Premium Feature
+        </h4>
+      </CardContent>
+    </Card>
+  )
 
 
   const handleViewDetails = (data: ExpenseInfoData) => {
@@ -170,7 +188,9 @@ export function ExpenseInfoCards({
           <Calendar className="h-5 w-5 text-blue-500" />
           Monthly Expenses
         </h3>
-        {monthlyData.length > 0 ? (
+        {!hasMonthlyPermission ? (
+          <PremiumFeatureCard feature="Monthly Analysis" />
+        ) : monthlyData.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {monthlyData.slice(-4).map((data, index) => renderExpenseCard(data, index))}
           </div>
@@ -189,7 +209,9 @@ export function ExpenseInfoCards({
           <Calendar className="h-5 w-5 text-green-500" />
           Quarterly Expenses
         </h3>
-        {quarterlyData.length > 0 ? (
+        {!hasQuarterlyPermission ? (
+          <PremiumFeatureCard feature="Quarterly Analysis" />
+        ) : quarterlyData.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {quarterlyData.slice(0, 3).map((data, index) => renderExpenseCard(data, index))}
           </div>
@@ -208,7 +230,9 @@ export function ExpenseInfoCards({
           <Calendar className="h-5 w-5 text-purple-500" />
           Yearly Expenses
         </h3>
-        {yearlyData.length > 0 ? (
+        {!hasYearlyPermission ? (
+          <PremiumFeatureCard feature="Yearly Analysis" />
+        ) : yearlyData.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {yearlyData.slice(0, 3).map((data, index) => renderExpenseCard(data, index))}
           </div>

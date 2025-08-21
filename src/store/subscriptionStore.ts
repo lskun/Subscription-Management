@@ -6,6 +6,7 @@ import { isSubscriptionDue, processSubscriptionRenewal } from '@/lib/subscriptio
 import { supabaseSubscriptionService } from '@/services/supabaseSubscriptionService'
 import { supabaseCategoriesService } from '@/services/supabaseCategoriesService'
 import { supabasePaymentMethodsService } from '@/services/supabasePaymentMethodsService'
+import { UserPermissionService, Permission, QuotaType } from '@/services/userPermissionService'
 // Helper to calculate the last billing date from the next one
 const calculateLastBillingDate = (nextBillingDate: string, billingCycle: BillingCycle): string => {
   const nextDate = new Date(nextBillingDate)
@@ -28,6 +29,12 @@ export type BillingCycle = 'monthly' | 'yearly' | 'quarterly'
 export type RenewalType = 'auto' | 'manual'
 // Updated to allow custom categories
 export type SubscriptionCategory = 'video' | 'music' | 'software' | 'cloud' | 'news' | 'game' | 'other' | string
+
+// Enhanced error type for permission and quota checks
+interface SubscriptionError {
+  message: string
+  upgradeRequired?: boolean
+}
 
 export interface Subscription {
   id: string // Changed to UUID string for Supabase
@@ -89,11 +96,11 @@ interface SubscriptionState {
   }
 
   // CRUD operations
-  addSubscription: (subscription: Omit<Subscription, 'id' | 'lastBillingDate'>) => Promise<{ data: Subscription | null; error: any | null }>
-  bulkAddSubscriptions: (subscriptions: Omit<Subscription, 'id' | 'lastBillingDate'>[]) => Promise<{ error: any | null }>
-  updateSubscription: (id: string, subscription: Partial<Subscription>) => Promise<{ error: any | null }>
-  deleteSubscription: (id: string) => Promise<{ error: any | null }>
-  resetSubscriptions: () => Promise<{ error: any | null }>
+  addSubscription: (subscription: Omit<Subscription, 'id' | 'lastBillingDate'>) => Promise<{ data: Subscription | null; error: SubscriptionError | null }>
+  bulkAddSubscriptions: (subscriptions: Omit<Subscription, 'id' | 'lastBillingDate'>[]) => Promise<{ error: SubscriptionError | null }>
+  updateSubscription: (id: string, subscription: Partial<Subscription>) => Promise<{ error: SubscriptionError | null }>
+  deleteSubscription: (id: string) => Promise<{ error: SubscriptionError | null }>
+  resetSubscriptions: () => Promise<{ error: SubscriptionError | null }>
   fetchSubscriptions: () => Promise<Subscription[]>
   fetchCategories: () => Promise<void>
   fetchPaymentMethods: () => Promise<void>
@@ -101,7 +108,7 @@ interface SubscriptionState {
   // Renewal operations
   processAutoRenewals: (skipRefresh?: boolean) => Promise<{ processed: number; errors: number }>
   processExpiredSubscriptions: (skipRefresh?: boolean) => Promise<{ processed: number; errors: number }>
-  manualRenewSubscription: (id: string) => Promise<{ error: any | null; renewalData: any | null }>
+  manualRenewSubscription: (id: string) => Promise<{ error: SubscriptionError | null; renewalData: unknown | null }>
 
   // Combined initialization
   initializeWithRenewals: () => Promise<void>
@@ -244,7 +251,26 @@ const subscriptionStore = create<SubscriptionState>()(
       // Add a new subscription
       addSubscription: async (subscription) => {
         try {
+          // 检查用户权限和订阅数量限制
+          const permissionCheck = await UserPermissionService.canPerformAction(
+            Permission.CREATE_SUBSCRIPTIONS,
+            QuotaType.MAX_SUBSCRIPTIONS
+          )
+          
+          if (!permissionCheck.allowed) {
+            const errorMessage = permissionCheck.reason || 'Cannot create subscription'
+            console.error('Permission denied:', errorMessage)
+            return { 
+              data: null, 
+              error: { 
+                message: errorMessage,
+                upgradeRequired: permissionCheck.upgradeRequired 
+              }
+            }
+          }
+
           const newSubscription = await supabaseSubscriptionService.createSubscription(subscription)
+          
           // Clear analytics cache since data has changed
           const { dashboardAnalyticsService } = await import('@/services/dashboardAnalyticsService')
           dashboardAnalyticsService.clearCache()
@@ -256,23 +282,54 @@ const subscriptionStore = create<SubscriptionState>()(
           // Refetch all subscriptions to get the updated list
           await get().fetchSubscriptions()
           return { data: newSubscription, error: null }
-        } catch (error: any) {
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
           console.error('Error adding subscription:', error)
-          set({ error: error.message })
-          return { data: null, error }
+          set({ error: errorMessage })
+          return { data: null, error: { message: errorMessage } }
         }
       },
 
       // Bulk add subscriptions
       bulkAddSubscriptions: async (subscriptions) => {
         try {
+          // 检查批量创建权限
+          const permissionCheck = await UserPermissionService.hasPermission(Permission.BULK_OPERATIONS)
+          if (!permissionCheck.allowed) {
+            const errorMessage = permissionCheck.reason || 'Bulk operations not allowed'
+            console.error('Permission denied for bulk operations:', errorMessage)
+            return { 
+              error: { 
+                message: errorMessage,
+                upgradeRequired: permissionCheck.upgradeRequired 
+              }
+            }
+          }
+
+          // 检查添加这些订阅后是否会超出限制
+          const newCount = subscriptions.length
+          const quotaUsage = await UserPermissionService.checkQuota(QuotaType.MAX_SUBSCRIPTIONS)
+          
+          if (quotaUsage && quotaUsage.limit > 0 && (quotaUsage.used + newCount) > quotaUsage.limit) {
+            const errorMessage = `Cannot add ${newCount} subscriptions. Would exceed limit (${quotaUsage.used + newCount}/${quotaUsage.limit})`
+            console.error('Quota exceeded:', errorMessage)
+            return { 
+              error: { 
+                message: errorMessage,
+                upgradeRequired: true 
+              }
+            }
+          }
+
           await supabaseSubscriptionService.bulkCreateSubscriptions(subscriptions)
+          
           await get().fetchSubscriptions()
           return { error: null }
-        } catch (error: any) {
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
           console.error('Error bulk adding subscriptions:', error)
-          set({ error: error.message })
-          return { error }
+          set({ error: errorMessage })
+          return { error: { message: errorMessage } }
         }
       },
 
@@ -286,10 +343,11 @@ const subscriptionStore = create<SubscriptionState>()(
           // Refetch to ensure data consistency
           await get().fetchSubscriptions()
           return { error: null }
-        } catch (error: any) {
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
           console.error('Error updating subscription:', error)
-          set({ error: error.message })
-          return { error }
+          set({ error: errorMessage })
+          return { error: { message: errorMessage } }
         }
       },
 
@@ -303,10 +361,11 @@ const subscriptionStore = create<SubscriptionState>()(
           // Refetch to reflect the deletion
           await get().fetchSubscriptions()
           return { error: null }
-        } catch (error: any) {
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
           console.error('Error deleting subscription:', error)
-          set({ error: error.message })
-          return { error }
+          set({ error: errorMessage })
+          return { error: { message: errorMessage } }
         }
       },
 
@@ -317,10 +376,11 @@ const subscriptionStore = create<SubscriptionState>()(
           // Refetch to ensure the UI is cleared
           await get().fetchSubscriptions()
           return { error: null }
-        } catch (error: any) {
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
           console.error('Error resetting subscriptions:', error)
-          set({ error: error.message })
-          return { error }
+          set({ error: errorMessage })
+          return { error: { message: errorMessage } }
         }
       },
 
@@ -686,7 +746,7 @@ const subscriptionStore = create<SubscriptionState>()(
           const result = await supabaseSubscriptionService.manualRenewSubscription(id);
           
           if (result.error) {
-            return { error: result.error, renewalData: null };
+            return { error: { message: result.error }, renewalData: null };
           }
 
           // 成功后，可以选择性地更新本地状态或触发刷新
@@ -694,8 +754,9 @@ const subscriptionStore = create<SubscriptionState>()(
 
           return { error: null, renewalData: result.renewalData };
 
-        } catch (e: any) {
-          return { error: e.message || 'An unknown error occurred', renewalData: null };
+        } catch (e: unknown) {
+          const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred'
+          return { error: { message: errorMessage }, renewalData: null };
         }
       },
 
@@ -710,9 +771,10 @@ const subscriptionStore = create<SubscriptionState>()(
             get().fetchPaymentMethods()
           ])
           set({ isLoading: false })
-        } catch (error: any) {
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
           console.error('Error during initialization:', error)
-          set({ error: error.message, isLoading: false })
+          set({ error: errorMessage, isLoading: false })
         }
       },
 
@@ -752,9 +814,10 @@ const subscriptionStore = create<SubscriptionState>()(
             console.warn(`Failed to cancel ${expiredResult.errors} expired subscription(s)`)
           }
           set({ isLoading: false })
-        } catch (error: any) {
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
           console.error('Error during initialization:', error)
-          set({ error: error.message, isLoading: false })
+          set({ error: errorMessage, isLoading: false })
         }
       }
     }),
