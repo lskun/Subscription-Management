@@ -22,7 +22,7 @@ let globalPlanCache: {
   loading: false
 }
 
-const CACHE_DURATION = 5 * 60 * 1000 // 5分钟缓存
+const CACHE_DURATION = 30 * 60 * 1000 // 30分钟缓存
 
 /**
  * 优化的用户订阅计划Hook - 使用全局缓存

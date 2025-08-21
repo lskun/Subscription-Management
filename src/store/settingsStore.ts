@@ -49,6 +49,13 @@ interface SettingsState {
   userSettingsCacheTimestamp: number // 用户设置缓存时间戳
   getCachedSetting: (settingKey: string) => any // 从缓存中获取特定设置值
   isSettingsCacheValid: () => boolean // 检查设置缓存是否有效
+  
+  // 订阅计划缓存
+  subscriptionPlanCache: any | null // 用户订阅计划缓存
+  subscriptionPlanCacheTimestamp: number // 订阅计划缓存时间戳
+  fetchAndCacheSubscriptionPlan: () => Promise<any> // 获取并缓存订阅计划
+  getCachedSubscriptionPlan: () => any | null // 从缓存获取订阅计划
+  isSubscriptionPlanCacheValid: () => boolean // 检查订阅计划缓存是否有效
 
   // 汇率相关设置
   exchangeRates: Record<string, number> // 汇率数据缓存
@@ -119,6 +126,10 @@ export const initialSettings = {
   // 用户设置缓存初始值
   userSettingsCache: null, // 初始无缓存
   userSettingsCacheTimestamp: 0, // 缓存时间戳为0
+  
+  // 订阅计划缓存初始值
+  subscriptionPlanCache: null, // 初始无订阅计划缓存
+  subscriptionPlanCacheTimestamp: 0, // 订阅计划缓存时间戳为0
 
   // 汇率相关初始值
   exchangeRates: DEFAULT_EXCHANGE_RATES, // 默认汇率数据
@@ -633,7 +644,9 @@ export const useSettingsStore = create<SettingsState>()(
           userCacheTimestamp: 0, // 重置时间戳
           userCachePendingRequest: null, // 清除待处理请求
           userSettingsCache: null, // 清除用户设置缓存
-          userSettingsCacheTimestamp: 0 // 重置设置缓存时间戳
+          userSettingsCacheTimestamp: 0, // 重置设置缓存时间戳
+          subscriptionPlanCache: null, // 清除订阅计划缓存
+          subscriptionPlanCacheTimestamp: 0 // 重置订阅计划缓存时间戳
         })
       },
 
@@ -943,6 +956,104 @@ export const useSettingsStore = create<SettingsState>()(
         // 兜底错误消息（使用其他可能的错误字段）
         return error.msg || error.details || '获取设置失败'
       },
+      
+      /**
+       * 获取并缓存用户订阅计划
+       * 登录后调用，将订阅计划数据缓存到store中
+       */
+      fetchAndCacheSubscriptionPlan: async () => {
+        const state = get()
+        const now = Date.now()
+        const CACHE_DURATION = 300000 // 5分钟缓存
+        
+        // 检查缓存是否有效
+        if (state.subscriptionPlanCache && 
+            state.subscriptionPlanCacheTimestamp && 
+            (now - state.subscriptionPlanCacheTimestamp) < CACHE_DURATION) {
+          console.log('🎯 使用订阅计划缓存数据', {
+            cacheAge: Math.round((now - state.subscriptionPlanCacheTimestamp) / 1000),
+            maxAge: Math.round(CACHE_DURATION / 1000)
+          })
+          return state.subscriptionPlanCache
+        }
+        
+        try {
+          // 获取当前用户
+          const user = await state.getCurrentUser()
+          if (!user) {
+            console.warn('👤 用户未登录，无法获取订阅计划')
+            return null
+          }
+          
+          console.log('🔄 从服务器获取用户订阅计划数据')
+          
+          // 获取用户订阅计划
+          const { data: userSubscription, error } = await supabase
+            .from('user_subscriptions')
+            .select(`
+              *,
+              subscription_plans (
+                id,
+                name,
+                features,
+                limits
+              )
+            `)
+            .eq('user_id', user.id)
+            .eq('status', 'active')
+            .single()
+          
+          if (error) {
+            console.error('获取用户订阅计划失败:', error)
+            return null
+          }
+          
+          const subscriptionPlan = userSubscription?.subscription_plans
+          
+          if (!subscriptionPlan) {
+            console.warn('用户没有有效的订阅计划')
+            return null
+          }
+          
+          console.log('✅ 用户订阅计划数据获取成功，已缓存', subscriptionPlan)
+          
+          // 更新缓存
+          set({
+            subscriptionPlanCache: subscriptionPlan,
+            subscriptionPlanCacheTimestamp: now
+          })
+          
+          return subscriptionPlan
+        } catch (error: any) {
+          console.error('❌ 获取用户订阅计划失败:', error)
+          return null
+        }
+      },
+      
+      /**
+       * 从缓存获取订阅计划
+       * 不发起网络请求，仅返回缓存数据
+       */
+      getCachedSubscriptionPlan: () => {
+        const state = get()
+        if (!state.isSubscriptionPlanCacheValid()) {
+          return null
+        }
+        return state.subscriptionPlanCache
+      },
+      
+      /**
+       * 检查订阅计划缓存是否有效
+       */
+      isSubscriptionPlanCacheValid: () => {
+        const state = get()
+        const now = Date.now()
+        const CACHE_DURATION = 300000 // 5分钟
+        
+        return !!(state.subscriptionPlanCache && 
+                 state.subscriptionPlanCacheTimestamp && 
+                 (now - state.subscriptionPlanCacheTimestamp) < CACHE_DURATION)
+      },
     }),
     {
       // Zustand持久化配置
@@ -960,6 +1071,8 @@ export const useSettingsStore = create<SettingsState>()(
         notifications: state.notifications,
         userSettingsCache: state.userSettingsCache,
         userSettingsCacheTimestamp: state.userSettingsCacheTimestamp,
+        subscriptionPlanCache: state.subscriptionPlanCache,
+        subscriptionPlanCacheTimestamp: state.subscriptionPlanCacheTimestamp,
         exchangeRates: state.exchangeRates,
         lastExchangeRateUpdate: state.lastExchangeRateUpdate,
         globalCache: state.globalCache // 添加全局缓存到持久化状态

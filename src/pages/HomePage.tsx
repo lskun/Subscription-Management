@@ -2,11 +2,14 @@ import { useState, useCallback, useMemo } from "react"
 import {
   Calendar,
   Clock,
-  RefreshCw
+  RefreshCw,
+  Crown
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/contexts/AuthContext"
+import { useUserPlan } from "@/hooks/usePermissionsOptimized"
 
 import {
   useSubscriptionStore,
@@ -26,12 +29,16 @@ import { ImportModal } from "@/components/imports/ImportModal"
 function HomePage() {
   const { toast } = useToast()
   const { user, loading: authLoading } = useAuth()
+  const { plan, loading: planLoading } = useUserPlan()
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   
   // Get the default view from settings
   const { currency: userCurrency } = useSettingsStore()
+  
+  // Plan information
+  const isFreePlan = plan?.name === '免费版'
 
   const {
     bulkAddSubscriptions,
@@ -177,7 +184,28 @@ function HomePage() {
     <>
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Dashboard</h1>
+            
+            {/* Plan Badge */}
+            {planLoading ? (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
+            ) : (
+              <Badge
+                variant={isFreePlan ? "default" : "default"}
+                className={isFreePlan ? "bg-green-500 text-white" : "bg-amber-500 text-white"}
+              >
+                {isFreePlan ? (
+                  <>Free Plan</>
+                ) : (
+                  <>
+                    <Crown className="h-3 w-3 mr-1" />
+                    Premium Plan
+                  </>
+                )}
+              </Badge>
+            )}
+          </div>
           <p className="text-muted-foreground">
             Overview of your subscription expenses and activity
           </p>

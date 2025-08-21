@@ -59,13 +59,13 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
-export function ExpenseTrendChart({ 
-  data, 
-  categoryData, 
-  currency, 
-  className, 
+export function ExpenseTrendChart({
+  data,
+  categoryData,
+  currency,
+  className,
   hasMonthlyPermission = true,
-  hasCategoryPermission = true 
+  hasCategoryPermission = true
 }: ExpenseTrendChartProps) {
   const [chartType, setChartType] = useState<'line' | 'groupedBar'>('line')
 
@@ -79,15 +79,11 @@ export function ExpenseTrendChart({
       <p className="text-muted-foreground mb-4 max-w-md">
         Upgrade to Premium to unlock detailed {feature.toLowerCase()} and trend analysis.
       </p>
-      <Button className="bg-amber-500 hover:bg-amber-600">
-        <Crown className="h-4 w-4 mr-2" />
-        Upgrade to Premium
-      </Button>
     </div>
   )
-  
+
   // 获取所有类别名称（用于分组柱状图）
-  const allCategories = categoryData ? 
+  const allCategories = categoryData ?
     Array.from(new Set(
       categoryData.flatMap(item => item.categories ? Object.keys(item.categories) : [])
     )).sort() : []
@@ -99,10 +95,10 @@ export function ExpenseTrendChart({
   }
 
   // Calculate trend (kept for potential future use)
-  const trend = data.length >= 2 
+  const trend = data.length >= 2
     ? ((data[data.length - 1].amount - data[0].amount) / data[0].amount) * 100
     : 0
-  
+
   const isPositiveTrend = trend > 0
   const TrendIcon = isPositiveTrend ? TrendingUp : TrendingDown
 
@@ -132,7 +128,7 @@ export function ExpenseTrendChart({
           <YAxis
             className="text-xs fill-muted-foreground"
             tick={{ fontSize: 10 }}
-            tickFormatter={(value) => formatCurrencyAmount(value, currency)}
+            tickFormatter={(value) => value.toLocaleString()}
             width={60}
           />
           <Tooltip
@@ -183,7 +179,8 @@ export function ExpenseTrendChart({
             left: 5,
             bottom: 30
           }}
-          barCategoryGap="20%"
+          barCategoryGap="10%"
+          barGap="2"
         >
           <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
           <XAxis
@@ -199,7 +196,7 @@ export function ExpenseTrendChart({
           <YAxis
             className="text-xs fill-muted-foreground"
             tick={{ fontSize: 10 }}
-            tickFormatter={(value) => formatCurrencyAmount(value, currency)}
+            tickFormatter={(value) => value.toLocaleString()}
             width={60}
           />
           <Tooltip
@@ -213,8 +210,8 @@ export function ExpenseTrendChart({
                         {payload.map((entry, index) => (
                           <div key={index} className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
-                              <div 
-                                className="h-2 w-2 rounded-full" 
+                              <div
+                                className="h-2 w-2 rounded-full"
                                 style={{ backgroundColor: entry.color }}
                               />
                               <span className="text-muted-foreground capitalize">{String(entry.dataKey).replace('categories.', '')}:</span>
@@ -229,7 +226,7 @@ export function ExpenseTrendChart({
                             <span className="text-muted-foreground font-medium">Total:</span>
                             <span className="font-semibold">
                               {formatCurrencyAmount(
-                                payload.reduce((sum, entry) => sum + (entry.value as number), 0), 
+                                payload.reduce((sum, entry) => sum + (entry.value as number), 0),
                                 currency
                               )}
                             </span>
@@ -249,23 +246,23 @@ export function ExpenseTrendChart({
               dataKey={`categories.${category}`}
               name={category}
               fill={getCategoryColor(category, index)}
-              radius={[2, 2, 0, 0]}
-              minPointSize={2}
-              maxBarSize={50}
+              radius={[4, 4, 0, 0]}
+              minPointSize={0}
+              maxBarSize={80}
             />
           ))}
         </BarChart>
       )
     }
   }
-  
+
   return (
     <Card className={className}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div>
           <CardTitle className="text-lg">Expense Trends</CardTitle>
           <CardDescription>
-            {chartType === 'line' 
+            {chartType === 'line'
               ? 'Monthly spending over time (Last 12 months)'
               : 'Monthly spending by category (Last 12 months)'
             }
@@ -294,7 +291,7 @@ export function ExpenseTrendChart({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="px-2 sm:px-6">
+      <CardContent className="px-2 sm:px-6 pt-8">
         {chartType === 'line' ? (
           !hasMonthlyPermission ? (
             <PremiumFeatureCard feature="Monthly Expense Trends" />
@@ -306,19 +303,19 @@ export function ExpenseTrendChart({
             <ChartContainer config={chartConfig} className="h-[250px] sm:h-[300px] w-full overflow-hidden">
               <LineChart data={data}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="monthKey" 
+                <XAxis
+                  dataKey="monthKey"
                   tickLine={false}
                   axisLine={false}
                   className="text-xs"
                 />
-                <YAxis 
+                <YAxis
                   tickLine={false}
-                  axisLine={false} 
+                  axisLine={false}
                   className="text-xs"
-                  tickFormatter={(value) => formatCurrencyAmount(value, currency)}
+                  tickFormatter={(value) => value.toLocaleString()}
                 />
-                <Tooltip 
+                <Tooltip
                   content={({ active, payload, label }) => {
                     if (active && payload && payload.length) {
                       return (
@@ -333,10 +330,10 @@ export function ExpenseTrendChart({
                     return null
                   }}
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="amount" 
-                  stroke="var(--color-amount)" 
+                <Line
+                  type="monotone"
+                  dataKey="amount"
+                  stroke="var(--color-amount)"
                   strokeWidth={2}
                   dot={{ r: 4 }}
                   activeDot={{ r: 6 }}
@@ -361,8 +358,8 @@ export function ExpenseTrendChart({
                 <div className="flex flex-wrap gap-4 justify-center mt-4 pt-4 border-t">
                   {allCategories.map((category, index) => (
                     <div key={category} className="flex items-center gap-2 text-sm">
-                      <div 
-                        className="h-3 w-3 rounded-sm" 
+                      <div
+                        className="h-3 w-3 rounded-sm"
                         style={{ backgroundColor: getCategoryColor(category, index) }}
                       />
                       <span className="text-muted-foreground capitalize">{category}</span>

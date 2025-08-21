@@ -445,10 +445,7 @@ export function ExpenseReportsPage() {
                         <Lock className="h-8 w-8 text-amber-500 mb-2" />
                         <h3 className="text-lg font-semibold mb-2 text-amber-700">
                           Category Analysis - Premium Feature
-                        </h3>
-                        <p className="text-muted-foreground mb-4 max-w-md">
-                          Upgrade to Premium to unlock detailed category expense analysis.
-                        </p>
+                        </h3>                        
                       </CardContent>
                     </Card>
                   )}

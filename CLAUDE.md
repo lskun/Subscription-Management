@@ -282,7 +282,7 @@ E2E测试需要认证时，使用以下测试账户：
 - E2E 测试使用 Playwright
 - 测试文件命名：*.test.ts
 - 前端页面BUG修复完成后，使用playwright mcp进行测试验证
-- 每次Playwright测试前，检查开发环境是否启动：`npm run dev`，如果已经启动，则不要重复启动
+- 每次Playwright测试前，检查开发环境是否启动：`npm run dev`，如果已经启动，则使用已启动的开发环境进行测试
 - 测试后手动关闭开发环境：`npm run stop`
 - 运行完`npm run test`记得退出,playwright mcp：`playwright mcp stop`  
 

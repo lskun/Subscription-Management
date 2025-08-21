@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { 
+import {
   expenseReportsEdgeFunctionService,
   ExpenseReportsResponse,
   MonthlyExpense,
@@ -34,15 +34,15 @@ export interface UseExpenseReportsDataReturn {
     quarterly: ExpenseInfoData[]
     yearly: ExpenseInfoData[]
   }
-  
+
   // 状态
   isLoading: boolean
   error: string | null
-  
+
   // 方法
   fetchData: () => Promise<void>
   refetch: () => Promise<void>
-  
+
   // 最后更新时间
   lastUpdated: Date | null
 }
@@ -76,11 +76,11 @@ export function useExpenseReportsData(options: UseExpenseReportsDataOptions = {}
     quarterly: [],
     yearly: []
   })
-  
+
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
-  
+
   // 请求去重机制
   const [currentRequest, setCurrentRequest] = useState<Promise<void> | null>(null)
 
@@ -91,11 +91,38 @@ export function useExpenseReportsData(options: UseExpenseReportsDataOptions = {}
       return
     }
 
-    // 如果已有正在进行的请求，等待它完成
-    if (currentRequest) {
-      console.log('useExpenseReportsData - Request already in progress, waiting for completion...')
-      return currentRequest
+    // 创建当前请求的参数签名
+    const requestSignature = JSON.stringify({
+      monthlyStartDate: monthlyStartDate.toISOString(),
+      monthlyEndDate: monthlyEndDate.toISOString(),
+      yearlyStartDate: yearlyStartDate.toISOString(),
+      yearlyEndDate: yearlyEndDate.toISOString(),
+      currency,
+      includeMonthlyExpenses,
+      includeYearlyExpenses,
+      includeCategoryExpenses,
+      includeExpenseInfo
+    })
+
+    // 如果当前参数和上次相同，跳过请求
+    if (lastParamsRef.current === requestSignature) {
+      console.log('useExpenseReportsData - Same params, skipping request')
+      return
     }
+
+    // 如果已有正在进行的请求，等待它完成再发起新请求
+    if (currentRequest) {
+      console.log('useExpenseReportsData - Request in progress, waiting for completion before new request...')
+      try {
+        await currentRequest
+      } catch (error) {
+        // 忽略之前请求的错误
+      }
+    }
+
+    // 更新参数签名
+    lastParamsRef.current = requestSignature
+    console.log('useExpenseReportsData - Starting new request with params:', requestSignature)
 
     const requestPromise = (async () => {
       setIsLoading(true)
@@ -103,7 +130,7 @@ export function useExpenseReportsData(options: UseExpenseReportsDataOptions = {}
 
       try {
         console.log('useExpenseReportsData - Fetching expense reports data...')
-        
+
         const response = await expenseReportsEdgeFunctionService.getFullExpenseReports(
           monthlyStartDate,
           monthlyEndDate,
@@ -112,13 +139,19 @@ export function useExpenseReportsData(options: UseExpenseReportsDataOptions = {}
           currency
         )
 
-        // 更新状态
+        // 更新状态 - 根据权限设置相应数据，权限不足时设为空数组
         if (includeMonthlyExpenses && response.monthlyExpenses) {
           setMonthlyExpenses(response.monthlyExpenses)
+          console.log('✅ 设置monthlyExpenses数据:', response.monthlyExpenses.length, '条记录')
+        } else if (!includeMonthlyExpenses) {
+          setMonthlyExpenses([])
+          console.log('🚫 无月度权限，设置monthlyExpenses为空数组')
         }
 
         if (includeYearlyExpenses && response.yearlyExpenses) {
           setYearlyExpenses(response.yearlyExpenses)
+        } else if (!includeYearlyExpenses) {
+          setYearlyExpenses([])
         }
 
         if (includeCategoryExpenses) {
@@ -131,6 +164,10 @@ export function useExpenseReportsData(options: UseExpenseReportsDataOptions = {}
           if (response.monthlyCategoryExpenses) {
             setMonthlyCategoryExpenses(response.monthlyCategoryExpenses)
           }
+        } else {
+          setCategoryExpenses([])
+          setYearlyCategoryExpenses([])
+          setMonthlyCategoryExpenses([])
         }
 
         if (includeExpenseInfo && response.expenseInfo) {
@@ -173,12 +210,16 @@ export function useExpenseReportsData(options: UseExpenseReportsDataOptions = {}
   // 使用 useRef 来跟踪是否已经发起过请求，避免在严格模式下重复请求
   const didInitialFetchRef = useRef(false);
   
-  // 自动获取数据
+  // 使用 useRef 跟踪上次的参数，在参数变化时重新获取数据
+  const lastParamsRef = useRef<string>('');
+
+  // 自动获取数据 - 当fetchData依赖变化时重新获取
   useEffect(() => {
-    if (autoFetch && !didInitialFetchRef.current) {
-      didInitialFetchRef.current = true;
-      fetchData();
-    }
+    if (!autoFetch) return;
+    
+    console.log('🔄 useExpenseReportsData - 触发数据获取...');
+    didInitialFetchRef.current = true;
+    fetchData();
   }, [fetchData, autoFetch])
 
   return {
@@ -189,15 +230,15 @@ export function useExpenseReportsData(options: UseExpenseReportsDataOptions = {}
     yearlyCategoryExpenses,
     monthlyCategoryExpenses,
     expenseInfo,
-    
+
     // 状态
     isLoading,
     error,
-    
+
     // 方法
     fetchData,
     refetch,
-    
+
     // 最后更新时间
     lastUpdated
   }

@@ -121,6 +121,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
               }
             }, 800) // 800ms后开始检查汇率缓存，给用户状态更新时间
 
+            // 用户登录后立即加载订阅计划到settingsStore缓存
+            setTimeout(async () => {
+              try {
+                console.log('🔄 用户登录成功，加载订阅计划...')
+                const store = useSettingsStore.getState()
+                await store.fetchAndCacheSubscriptionPlan()
+                console.log('✅ 订阅计划加载完成')
+              } catch (error) {
+                console.error('⚠️ 订阅计划加载失败:', error)
+              }
+            }, 1000) // 1000ms后开始加载订阅计划，确保用户状态已稳定
+
             // 检查是否是新用户，如果是则初始化（防止重复初始化）
             if (session?.user && !initializingUsers.has(session.user.id)) {
               // 添加到正在初始化的用户集合

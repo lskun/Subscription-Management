@@ -79,39 +79,43 @@ export interface PermissionCheckResult {
 export class UserPermissionService {
   /**
    * Get user subscription plan information
+   * 优先从 settingsStore 缓存中获取，避免重复 API 调用
    */
   static async getUserSubscriptionPlan(userId?: string): Promise<UserSubscriptionPlan | null> {
     try {
       const { useSettingsStore } = await import('@/store/settingsStore');
-      const user = await useSettingsStore.getState().getCurrentUser();
+      const settingsStore = useSettingsStore.getState();
+      const user = await settingsStore.getCurrentUser();
       const targetUserId = userId || user?.id
       
       if (!targetUserId) {
-        throw new Error('User not logged in')
-      }
-
-      // Get user's current subscription plan
-      const { data: userSubscription, error: subscriptionError } = await supabase
-        .from('user_subscriptions')
-        .select(`
-          *,
-          subscription_plans (
-            id,
-            name,
-            features,
-            limits
-          )
-        `)
-        .eq('user_id', targetUserId)
-        .eq('status', 'active')
-        .single()
-
-      if (subscriptionError) {
-        console.error('Failed to get user subscription plan:', subscriptionError)
+        console.warn('User not logged in, cannot get subscription plan')
         return null
       }
 
-      const plan = userSubscription.subscription_plans
+      // 优先尝试从缓存获取
+      const cachedPlan = settingsStore.getCachedSubscriptionPlan()
+      if (cachedPlan) {
+        console.log('🎯 使用缓存的订阅计划数据')
+        
+        // Parse permissions and quotas from cached data
+        const permissions = this.parsePermissions(cachedPlan.features)
+        const quotas = this.parseQuotas(cachedPlan.limits)
+
+        return {
+          id: cachedPlan.id,
+          name: cachedPlan.name,
+          features: cachedPlan.features,
+          limits: cachedPlan.limits,
+          permissions,
+          quotas
+        }
+      }
+
+      // 缓存不存在或已过期，从 API 获取
+      console.log('🔄 缓存不存在，从 API 获取订阅计划数据')
+      const plan = await settingsStore.fetchAndCacheSubscriptionPlan()
+      
       if (!plan) {
         return null
       }
