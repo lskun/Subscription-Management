@@ -57,9 +57,9 @@ const chartConfig = {
 
 export function YearlyTrendChart({ data, categoryData, currency, className }: YearlyTrendChartProps) {
   const [chartType, setChartType] = useState<'line' | 'groupedBar'>('line')
-  
+
   // 获取所有类别名称（用于分组柱状图）
-  const allCategories = categoryData ? 
+  const allCategories = categoryData ?
     Array.from(new Set(
       categoryData.flatMap(item => item.categories ? Object.keys(item.categories) : [])
     )).sort() : []
@@ -71,10 +71,10 @@ export function YearlyTrendChart({ data, categoryData, currency, className }: Ye
   }
 
   // Calculate trend (kept for potential future use)
-  const trend = data.length >= 2 
+  const trend = data.length >= 2
     ? ((data[data.length - 1].amount - data[0].amount) / data[0].amount) * 100
     : 0
-  
+
   const isPositiveTrend = trend > 0
   const TrendIcon = isPositiveTrend ? TrendingUp : TrendingDown
 
@@ -101,7 +101,7 @@ export function YearlyTrendChart({ data, categoryData, currency, className }: Ye
           <YAxis
             className="text-xs fill-muted-foreground"
             tick={{ fontSize: 10 }}
-            tickFormatter={(value) => formatCurrencyAmount(value, currency)}
+            tickFormatter={(value) => value.toLocaleString()}
             width={60}
           />
           <Tooltip
@@ -164,7 +164,7 @@ export function YearlyTrendChart({ data, categoryData, currency, className }: Ye
           <YAxis
             className="text-xs fill-muted-foreground"
             tick={{ fontSize: 10 }}
-            tickFormatter={(value) => formatCurrencyAmount(value, currency)}
+            tickFormatter={(value) => value.toLocaleString()}
             width={60}
           />
           <Tooltip
@@ -178,8 +178,8 @@ export function YearlyTrendChart({ data, categoryData, currency, className }: Ye
                         {payload.map((entry, index) => (
                           <div key={index} className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
-                              <div 
-                                className="h-2 w-2 rounded-full" 
+                              <div
+                                className="h-2 w-2 rounded-full"
                                 style={{ backgroundColor: entry.color }}
                               />
                               <span className="text-muted-foreground capitalize">{String(entry.dataKey).replace('categories.', '')}:</span>
@@ -194,7 +194,7 @@ export function YearlyTrendChart({ data, categoryData, currency, className }: Ye
                             <span className="text-muted-foreground font-medium">Total:</span>
                             <span className="font-semibold">
                               {formatCurrencyAmount(
-                                payload.reduce((sum, entry) => sum + (entry.value as number), 0), 
+                                payload.reduce((sum, entry) => sum + (entry.value as number), 0),
                                 currency
                               )}
                             </span>
@@ -221,14 +221,14 @@ export function YearlyTrendChart({ data, categoryData, currency, className }: Ye
       )
     }
   }
-  
+
   return (
     <Card className={className}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <div>
           <CardTitle className="text-lg">Yearly Trends</CardTitle>
           <CardDescription>
-            {chartType === 'line' 
+            {chartType === 'line'
               ? 'Annual spending over time'
               : 'Annual spending by category'
             }
@@ -260,7 +260,7 @@ export function YearlyTrendChart({ data, categoryData, currency, className }: Ye
       <CardContent className="px-2 sm:px-6">
         {(chartType === 'line' ? data.length === 0 : !categoryData || categoryData.length === 0) ? (
           <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-            {chartType === 'line' 
+            {chartType === 'line'
               ? 'No yearly data available'
               : 'No yearly category data available'
             }
@@ -275,8 +275,8 @@ export function YearlyTrendChart({ data, categoryData, currency, className }: Ye
               <div className="flex flex-wrap gap-4 justify-center mt-4 pt-4 border-t">
                 {allCategories.map((category, index) => (
                   <div key={category} className="flex items-center gap-2 text-sm">
-                    <div 
-                      className="h-3 w-3 rounded-sm" 
+                    <div
+                      className="h-3 w-3 rounded-sm"
                       style={{ backgroundColor: getCategoryColor(category, index) }}
                     />
                     <span className="text-muted-foreground capitalize">{category}</span>

@@ -46,17 +46,22 @@ import { SessionManagementExample } from "@/components/auth/SessionManagementExa
 import { UserProfileForm } from "@/components/user/UserProfileForm"
 import { UserPreferencesForm } from "@/components/user/UserPreferencesForm"
 import { useAuth } from "@/contexts/AuthContext"
+import { useAdminPermissions } from "@/hooks/useAdminPermissions"
 
 export function SettingsPage() {
   const { toast } = useToast()
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
+  const { hasAnyPermission } = useAdminPermissions()
 
   // Import modal state
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
 
   // Get tab from URL params
   const defaultTab = searchParams.get('tab') || 'profile'
+  
+  // Check if user has admin permissions to view Data tab
+  const canViewDataTab = hasAnyPermission(['super_admin', 'data_management', 'system_admin'])
 
   // Theme from next-themes
   const { setTheme: setNextTheme } = useTheme()
@@ -152,7 +157,9 @@ export function SettingsPage() {
             <TabsTrigger value="currency" className="text-xs sm:text-sm px-2 sm:px-3">Currency</TabsTrigger>
             <TabsTrigger value="options" className="text-xs sm:text-sm px-2 sm:px-3">Options</TabsTrigger>
             <TabsTrigger value="session" className="text-xs sm:text-sm px-2 sm:px-3">Session</TabsTrigger>
-            <TabsTrigger value="data" className="text-xs sm:text-sm px-2 sm:px-3">Data</TabsTrigger>
+            {canViewDataTab && (
+              <TabsTrigger value="data" className="text-xs sm:text-sm px-2 sm:px-3">Data</TabsTrigger>
+            )}
           </TabsList>
         </div>
 
@@ -196,77 +203,79 @@ export function SettingsPage() {
           />
         </TabsContent>
 
-        <TabsContent value="data" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>API & Synchronization</CardTitle>
-              <CardDescription>
-                Manage your API key for backend synchronization. This key is stored locally.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <Label htmlFor="api-key">API Key</Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="api-key"
-                    type={isKeyVisible ? "text" : "password"}
-                    placeholder="Enter your API key"
-                    value={tempApiKey}
-                    onChange={(e) => setTempApiKey(e.target.value)}
-                  />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setIsKeyVisible(!isKeyVisible)}
-                  >
-                    {isKeyVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
+        {canViewDataTab && (
+          <TabsContent value="data" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>API & Synchronization</CardTitle>
+                <CardDescription>
+                  Manage your API key for backend synchronization. This key is stored locally.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  <Label htmlFor="api-key">API Key</Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="api-key"
+                      type={isKeyVisible ? "text" : "password"}
+                      placeholder="Enter your API key"
+                      value={tempApiKey}
+                      onChange={(e) => setTempApiKey(e.target.value)}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setIsKeyVisible(!isKeyVisible)}
+                    >
+                      {isKeyVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    The API key is required for creating, updating, or deleting subscriptions.
+                  </p>
                 </div>
-                <p className="text-sm text-muted-foreground">
-                  The API key is required for creating, updating, or deleting subscriptions.
-                </p>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button onClick={handleSaveApiKey}>Save API Key</Button>
-            </CardFooter>
-          </Card>
+              </CardContent>
+              <CardFooter>
+                <Button onClick={handleSaveApiKey}>Save API Key</Button>
+              </CardFooter>
+            </Card>
 
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle>Data Management</CardTitle>
-              <CardDescription>
-                Export your subscriptions or import from another service
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex gap-4">
-              <Button variant="outline" onClick={handleExportData}>
-                <Download className="mr-2 h-4 w-4" />
-                Export Data
-              </Button>
-              <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
-                <Upload className="mr-2 h-4 w-4" />
-                Import Data
-              </Button>
-            </CardContent>
-          </Card>
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle>Data Management</CardTitle>
+                <CardDescription>
+                  Export your subscriptions or import from another service
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex gap-4">
+                <Button variant="outline" onClick={handleExportData}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Export Data
+                </Button>
+                <Button variant="outline" onClick={() => setIsImportModalOpen(true)}>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Import Data
+                </Button>
+              </CardContent>
+            </Card>
 
-          <Card className="mt-4 border-destructive">
-            <CardHeader>
-              <CardTitle>Reset Data</CardTitle>
-              <CardDescription>
-                This will permanently delete all your subscriptions and settings.
-                This action cannot be undone.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="destructive" onClick={resetConfirmation.openDialog}>
-                Reset All Data
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            <Card className="mt-4 border-destructive">
+              <CardHeader>
+                <CardTitle>Reset Data</CardTitle>
+                <CardDescription>
+                  This will permanently delete all your subscriptions and settings.
+                  This action cannot be undone.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="destructive" onClick={resetConfirmation.openDialog}>
+                  Reset All Data
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
       </Tabs>
 
