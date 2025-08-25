@@ -174,10 +174,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
                     const initResult = await UserInitializationService.initializeNewUser(session.user)
                     if (initResult.success) {
                       console.log('新用户初始化成功')
-                      toast.success('Welcome to Subscription Manager!')
+                      // 移除toast，避免与登录流程中的提示重复
+                      // toast.success('Welcome to Subscription Manager!')
                     } else {
                       console.error('新用户初始化失败:', initResult.error)
-                      toast.warning('Login successful, but initialization failed')
+                      // 只在真正失败时显示警告
+                      console.warn('用户初始化失败，但不影响登录')
                     }
                   }
                 } catch (error) {
@@ -351,13 +353,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
             
             if (initResult.success) {
               console.log('用户初始化成功:', initResult.message)
+              // 不显示toast，保持注册流程的简洁性
             } else {
               console.error('用户初始化失败:', initResult.error)
-              toast.warning('Registration successful, but initialization failed')
+              console.warn('注册成功但初始化失败，用户仍可正常使用')
             }
           } catch (initError) {
             console.error('用户初始化异常:', initError)
-            toast.warning('Registration successful, but initialization failed')
+            console.warn('用户初始化异常，但不影响注册结果')
           } finally {
             setInitializingUsers(prev => {
               const newSet = new Set(prev)

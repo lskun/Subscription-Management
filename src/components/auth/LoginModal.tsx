@@ -130,12 +130,14 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
       setError('')
       setIsGoogleLoading(true)
       await signInWithGoogle()
-      // Google OAuth will redirect to callback page, no need to handle success logic here
-      // Modal will close automatically when page redirects
+      // Google OAuth will redirect to callback page, modal will close automatically
+      // Show brief success message before redirect
+      setTimeout(() => {
+        setSuccessMessage('Redirecting to Google...')
+      }, 100)
     } catch (error: any) {
       console.error('Google login failed:', error)
       setError(error.message || 'Google login failed, please try again')
-      toast.error('Google login failed, please try again')
       setIsGoogleLoading(false)
     }
     // Note: Don't set setIsGoogleLoading(false) in finally block because page will redirect
@@ -162,7 +164,7 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
       setError('')
       setIsEmailLoginLoading(true)
       await signInWithEmail(email, password)
-      toast.success('Login successful')
+      // 移除toast，登录成功后直接跳转
       resetForm()
       onSuccess?.()
     } catch (error: any) {
@@ -221,7 +223,7 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
         const message = `Registration successful! We have sent a confirmation email to ${userEmail}. Please check your inbox (including spam folder) and click the confirmation link to complete registration.`
         console.log('Setting success message:', message)
         setSuccessMessage(message)
-        toast.success('Registration successful! Please check your email for confirmation link')
+        // 移除toast，使用弹窗内的成功状态显示
         
         // Start 5-second countdown for auto-close
         setAutoCloseCountdown(5)
@@ -264,7 +266,7 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
       setIsResetPasswordLoading(true)
       await resetPassword(email)
       setResetEmailSent(true)
-      toast.success('Password reset email sent')
+      // 移除toast，使用页面内的成功状态显示
       
       // Auto-close dialog after 3 seconds
       setTimeout(() => {
@@ -308,46 +310,69 @@ export function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
             <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm z-50 flex items-center justify-center rounded-lg">
               <div className="flex flex-col items-center space-y-3">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-                <p className="text-sm text-gray-600 dark:text-gray-400">
-                  {isGoogleLoading && 'Signing in with Google...'}
+                <p className="text-sm text-gray-600 dark:text-gray-400 text-center">
+                  {isGoogleLoading && 'Connecting to Google...'}
                   {isEmailLoginLoading && 'Signing in...'}
-                  {isRegisterLoading && 'Registering...'}
+                  {isRegisterLoading && 'Creating account...'}
                   {isResetPasswordLoading && 'Sending reset email...'}
                 </p>
               </div>
             </div>
           )}
 
-          {/* Registration success screen - covers entire content area */}
+          {/* Success screen - handles both registration and Google login redirect */}
           {(() => {
             console.log('Render check - successMessage:', successMessage)
             return successMessage ? (
             <div className="space-y-6 text-center py-4">
               <div className="flex justify-center">
-                <div className="w-20 h-20 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
-                  <Mail className="w-10 h-10 text-green-600 dark:text-green-400" />
+                <div className={`w-20 h-20 rounded-full flex items-center justify-center ${
+                  successMessage.includes('Google') 
+                    ? 'bg-blue-100 dark:bg-blue-900' 
+                    : 'bg-green-100 dark:bg-green-900'
+                }`}>
+                  {successMessage.includes('Google') ? (
+                    <Loader2 className="w-10 h-10 text-blue-600 dark:text-blue-400 animate-spin" />
+                  ) : (
+                    <Mail className="w-10 h-10 text-green-600 dark:text-green-400" />
+                  )}
                 </div>
               </div>
               <div className="space-y-3">
-                <h3 className="text-2xl font-bold text-green-800 dark:text-green-200">
-                  Registration Successful!
-                </h3>
-                <p className="text-gray-600 dark:text-gray-400 max-w-sm mx-auto">
-                  Please check your email and click the confirmation link to complete registration
-                </p>
-                {autoCloseCountdown > 0 && (
-                  <p className="text-sm text-green-700 dark:text-green-300">
-                    This dialog will close automatically in {autoCloseCountdown} seconds
-                  </p>
+                {successMessage.includes('Google') ? (
+                  <>
+                    <h3 className="text-2xl font-bold text-blue-800 dark:text-blue-200">
+                      Connecting to Google
+                    </h3>
+                    <p className="text-gray-600 dark:text-gray-400 max-w-sm mx-auto">
+                      Please complete the authentication in the Google window
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="text-2xl font-bold text-green-800 dark:text-green-200">
+                      Registration Successful!
+                    </h3>
+                    <p className="text-gray-600 dark:text-gray-400 max-w-sm mx-auto">
+                      Please check your email and click the confirmation link to complete registration
+                    </p>
+                    {autoCloseCountdown > 0 && (
+                      <p className="text-sm text-green-700 dark:text-green-300">
+                        This dialog will close automatically in {autoCloseCountdown} seconds
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
-              <Button 
-                onClick={handleSuccessClose}
-                className="w-full bg-green-600 hover:bg-green-700 text-white"
-                size="lg"
-              >
-                {autoCloseCountdown > 0 ? `Got it (${autoCloseCountdown}s)` : 'Got it'}
-              </Button>
+              {!successMessage.includes('Google') && (
+                <Button 
+                  onClick={handleSuccessClose}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white"
+                  size="lg"
+                >
+                  {autoCloseCountdown > 0 ? `Got it (${autoCloseCountdown}s)` : 'Got it'}
+                </Button>
+              )}
             </div>
           ) : null
           })()}
