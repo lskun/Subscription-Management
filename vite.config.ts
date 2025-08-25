@@ -31,11 +31,16 @@ export default defineConfig(() => {
             'vendor-ui': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select', '@radix-ui/react-tabs'],
             'vendor-charts': ['recharts'],
             'vendor-utils': ['zustand', 'date-fns', 'lucide-react'],
+            'vendor-supabase': ['@supabase/supabase-js'],
             // App chunks
             'charts': [
               './src/components/charts/CategoryPieChart.tsx',
               './src/components/charts/ExpenseTrendChart.tsx',
               './src/components/charts/YearlyTrendChart.tsx'
+            ],
+            'auth': [
+              './src/contexts/AuthContext.tsx',
+              './src/services/authService.ts'
             ]
           },
         },

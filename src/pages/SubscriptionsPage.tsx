@@ -661,7 +661,7 @@ export function SubscriptionsPage() {
       if (error) {
         toast({
           title: "Error renewing subscription",
-          description: error,
+          description: String(error),
           variant: "destructive"
         })
         return
@@ -671,10 +671,11 @@ export function SubscriptionsPage() {
       if (renewalData) {
         const currentSubscription = subscriptions.find(sub => sub.id === id)
         if (currentSubscription) {
+          const renewalInfo = renewalData as { newNextBilling: string; newLastBilling: string }
           const updatedData = {
             ...currentSubscription,
-            nextBillingDate: renewalData.newNextBilling,
-            lastBillingDate: renewalData.newLastBilling
+            nextBillingDate: renewalInfo.newNextBilling,
+            lastBillingDate: renewalInfo.newLastBilling
           }
           updateLocalSubscription(updatedData)
           // 同步更新本地原始数据
@@ -686,7 +687,7 @@ export function SubscriptionsPage() {
 
       toast({
         title: "Subscription renewed successfully",
-        description: `${subscription.name} has been renewed. Next billing date: ${renewalData?.newNextBilling}`
+        description: `${subscription.name} has been renewed. Next billing date: ${(renewalData as { newNextBilling: string })?.newNextBilling}`
       })
     } catch (error) {
       console.error('Error renewing subscription:', error)

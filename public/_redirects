@@ -1,0 +1,3 @@
+# SPA路由重定向 - 将所有路由重定向到index.html
+# 这是Cloudflare Pages部署React SPA应用的必需配置
+/*    /index.html   200

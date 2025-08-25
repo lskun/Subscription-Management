@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   expenseReportsEdgeFunctionService,
-  ExpenseReportsResponse,
   MonthlyExpense,
   YearlyExpense,
   CategoryExpense,
@@ -10,11 +9,25 @@ import {
 } from '@/services/expenseReportsEdgeFunctionService'
 
 export interface UseExpenseReportsDataOptions {
+  monthlyRange?: {
+    startDate: Date
+    endDate: Date
+  }
+  yearlyRange?: {
+    startDate: Date
+    endDate: Date
+  }
   monthlyStartDate?: Date
   monthlyEndDate?: Date
   yearlyStartDate?: Date
   yearlyEndDate?: Date
   currency?: string
+  requestParams?: {
+    includeMonthlyExpenses?: boolean
+    includeYearlyExpenses?: boolean
+    includeCategoryExpenses?: boolean
+    includeAdvancedAnalytics?: boolean
+  }
   includeMonthlyExpenses?: boolean
   includeYearlyExpenses?: boolean
   includeCategoryExpenses?: boolean

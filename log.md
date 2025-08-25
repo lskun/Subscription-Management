@@ -388,8 +388,150 @@
   - Yearly Expenses：锚定 `yearlyEndDate`（无则当前），返回最近 3 年并补 0；并据此构建 `expenseInfo.yearly`
   - 说明：不改变既有 SQL 聚合与汇率换算逻辑，仅在 Edge 层做时间窗归一与空月/季/年补零
 
-- feat(expense-reports): 增加“活跃订阅数”
+- feat(expense-reports): 增加"活跃订阅数"
   - 定义：某月内发生过成功支付的订阅去重数
   - Edge：在月度窗口内拉取 `payment_history(status='success')`，按月聚合 `distinct(subscription_id)` 为 `activeSubscriptionCount`；`expenseInfo.monthly.paymentCount` 返回该值
-  - 前端：`ExpenseReportsPage` 的 `adaptedMonthlyExpenses.subscriptionCount` 使用 `activeSubscriptionCount`，用于趋势图 Tooltip “Subscriptions”
+  - 前端：`ExpenseReportsPage` 的 `adaptedMonthlyExpenses.subscriptionCount` 使用 `activeSubscriptionCount`，用于趋势图 Tooltip "Subscriptions"
   - 年度：同理在年度窗口内计算 `activeSubscriptionCount` 并返回；前端 `adaptedYearlyExpenses.subscriptionCount` 使用该值
+
+## 2025-08-25
+
+### Cloudflare Pages TypeScript构建错误修复
+
+- **环境配置增强**: 使Supabase调试模式可配置以支持不同部署环境
+  - 文件：`src/lib/supabase.ts`
+  - 变更：添加`VITE_SUPABASE_DEBUG`环境变量读取逻辑
+  ```typescript
+  const isDebugMode = import.meta.env.VITE_SUPABASE_DEBUG === 'true'
+  // Supabase客户端配置中使用：
+  debug: isDebugMode, // 从环境变量获取调试模式设置
+  ```
+  - 文件：`.env` (开发环境)
+  - 添加：`VITE_SUPABASE_DEBUG=true` 
+  - 文件：`.env.production` (生产环境模板)
+  - 添加：`VITE_SUPABASE_DEBUG=false`
+  - 影响：支持Cloudflare Pages构建时从环境变量控制调试模式
+
+- **费用报表组件类型适配**: 解决服务层接口不一致导致的TypeScript编译错误
+  - 文件：`src/components/expense-reports/PermissionControlledExpenseReports.tsx`
+  - 问题：`ExpenseInfoData`接口在不同服务层存在字段差异，导致类型不匹配
+  - 解决方案：实现类型适配器模式
+    ```typescript
+    // 新增类型适配函数
+    const adaptExpenseInfoData = (data: ServiceExpenseInfoData[], periodType: 'monthly' | 'quarterly' | 'yearly'): UIExpenseInfoData[] => {
+      return data.map(item => ({
+        period: item.period,
+        periodType,
+        totalSpent: item.amount,
+        dailyAverage: periodType === 'monthly' ? item.amount / 30 : periodType === 'quarterly' ? item.amount / 90 : item.amount / 365,
+        activeSubscriptions: 0, // Edge function服务不提供此字段，设为0
+        paymentCount: item.paymentCount || 0,
+        startDate: item.period,
+        endDate: item.period,
+        currency: item.currency
+      }))
+    }
+    
+    const adaptMonthlyExpenseData = (data: ServiceMonthlyExpense[]): UIMonthlyExpense[] => {
+      return data.map(item => ({
+        monthKey: `${item.year}-${String(new Date(item.month + ' 1, 2000').getMonth() + 1).padStart(2, '0')}`,
+        month: item.month,
+        year: item.year,
+        amount: item.total,
+        subscriptionCount: item.activeSubscriptionCount || 0
+      }))
+    }
+    
+    const adaptYearlyExpenseData = (data: ServiceYearlyExpense[]): UIYearlyExpense[] => {
+      return data.map(item => ({
+        year: item.year,
+        amount: item.total,
+        subscriptionCount: item.activeSubscriptionCount || 0
+      }))
+    }
+    
+    const adaptCategoryExpenseData = (data: ServiceCategoryExpense[]): UICategoryExpense[] => {
+      const totalAmount = data.reduce((sum, item) => sum + item.total, 0)
+      return data.map(item => ({
+        category: item.category,
+        amount: item.total,
+        percentage: totalAmount > 0 ? (item.total / totalAmount) * 100 : 0,
+        subscriptionCount: item.subscriptionCount
+      }))
+    }
+    ```
+  - 影响：成功解决服务层接口不一致问题，确保类型安全的数据转换
+
+- **Hook接口扩展**: 支持新的时间范围参数
+  - 文件：`src/hooks/useExpenseReportsData.ts`
+  - 变更：扩展`UseExpenseReportsDataOptions`接口
+    ```typescript
+    export interface UseExpenseReportsDataOptions {
+      monthlyRange?: {
+        startDate: Date
+        endDate: Date
+      }
+      yearlyRange?: {
+        startDate: Date
+        endDate: Date
+      }
+      // ... 其他字段保持不变
+    }
+    ```
+  - 影响：支持组件传入时间范围参数，增强Hook的灵活性
+
+- **文件导入功能修复**: 修复缺失字段导致的类型错误
+  - 文件：`src/components/imports/fileParser.ts`
+  - 问题：导入数据映射时缺少必需的`convertedAmount`字段
+  - 解决方案：为所有导入格式添加`convertedAmount`字段映射
+    ```typescript
+    // 修复各种导入格式的数据映射
+    setSubscriptions(data.map((sub: any) => ({
+      // ... 其他字段
+      amount: Number(sub.amount) || 0,
+      convertedAmount: Number(sub.convertedAmount) || Number(sub.amount) || 0, // 新增字段，使用amount作为fallback
+      paymentMethodId: sub.paymentMethodId || '1',
+      categoryId: sub.categoryId || '10',
+      // ... 其他字段
+    })))
+    ```
+  - 影响：修复文件导入功能，确保所有导入的订阅数据包含完整的必需字段
+
+- **订阅页面类型安全增强**: 修复续费数据处理中的类型断言问题
+  - 文件：`src/pages/SubscriptionsPage.tsx`
+  - 问题：续费数据访问未知属性导致TypeScript错误
+  - 解决方案：添加适当的类型断言
+    ```typescript
+    // 修复续费数据处理
+    if (renewalData) {
+      const renewalInfo = renewalData as { newNextBilling: string; newLastBilling: string }
+      const updatedData = {
+        ...currentSubscription,
+        nextBillingDate: renewalInfo.newNextBilling,
+        lastBillingDate: renewalInfo.newLastBilling
+      }
+      // ... 更新逻辑
+    }
+    
+    // 修复错误描述类型转换
+    description: String(error) // 将错误对象转换为字符串，避免ReactNode类型冲突
+    ```
+  - 影响：确保续费功能的类型安全，避免运行时类型错误
+
+- **技术债务清理**: 处理ESLint警告
+  - 清理未使用的变量和导入
+  - 修复React Hook依赖数组警告
+  - 标准化代码格式和最佳实践
+
+### 构建优化成果
+- ✅ 解决Cloudflare Pages构建过程中的所有TypeScript编译错误
+- ✅ 实现环境变量驱动的Supabase调试模式配置
+- ✅ 建立类型适配器模式处理服务层接口差异
+- ✅ 保持现有功能完全不变，仅修复类型安全问题
+- ✅ 提升代码质量和类型安全性，为未来维护奠定基础
+
+### 关键技术模式
+1. **类型适配器模式**: 通过适配函数解决不同服务层接口不一致问题
+2. **环境变量配置**: 使用`VITE_`前缀的环境变量支持构建时配置
+3. **渐进式类型增强**: 通过类型断言和接口扩展提升类型安全性
+4. **向后兼容保证**: 所有修复都保持现有API和功能不变

@@ -10,13 +10,61 @@ import { useExpenseReportsData } from "@/hooks/useExpenseReportsData"
 import { ExpenseTrendChart } from "@/components/charts/ExpenseTrendChart"
 import { YearlyTrendChart } from "@/components/charts/YearlyTrendChart"
 import { CategoryPieChart } from "@/components/charts/CategoryPieChart"
-import { ExpenseInfoCards } from "@/components/charts/ExpenseInfoCards"
+import { ExpenseInfoCards, ExpenseInfoData as UIExpenseInfoData } from "@/components/charts/ExpenseInfoCards"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Lock, Crown, TrendingUp, BarChart3, PieChart } from 'lucide-react'
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { ExpenseInfoData as ServiceExpenseInfoData, MonthlyExpense as ServiceMonthlyExpense, YearlyExpense as ServiceYearlyExpense, CategoryExpense as ServiceCategoryExpense } from "@/services/expenseReportsEdgeFunctionService"
+import { MonthlyExpense as UIMonthlyExpense, YearlyExpense as UIYearlyExpense, CategoryExpense as UICategoryExpense } from "@/services/supabaseAnalyticsService"
+
+// 类型适配器函数
+const adaptExpenseInfoData = (data: ServiceExpenseInfoData[], periodType: 'monthly' | 'quarterly' | 'yearly'): UIExpenseInfoData[] => {
+  return data.map(item => ({
+    period: item.period,
+    periodType,
+    totalSpent: item.amount,
+    dailyAverage: periodType === 'monthly' ? item.amount / 30 : periodType === 'quarterly' ? item.amount / 90 : item.amount / 365,
+    activeSubscriptions: 0, // Edge function doesn't provide this, set to 0
+    paymentCount: item.paymentCount || 0,
+    startDate: item.period,
+    endDate: item.period,
+    currency: item.currency
+  }))
+}
+
+// 适配月度费用数据
+const adaptMonthlyExpenseData = (data: ServiceMonthlyExpense[]): UIMonthlyExpense[] => {
+  return data.map(item => ({
+    monthKey: `${item.year}-${String(new Date(item.month + ' 1, 2000').getMonth() + 1).padStart(2, '0')}`,
+    month: item.month,
+    year: item.year,
+    amount: item.total,
+    subscriptionCount: item.activeSubscriptionCount || 0
+  }))
+}
+
+// 适配年度费用数据
+const adaptYearlyExpenseData = (data: ServiceYearlyExpense[]): UIYearlyExpense[] => {
+  return data.map(item => ({
+    year: item.year,
+    amount: item.total,
+    subscriptionCount: item.activeSubscriptionCount || 0
+  }))
+}
+
+// 适配分类费用数据
+const adaptCategoryExpenseData = (data: ServiceCategoryExpense[]): UICategoryExpense[] => {
+  const totalAmount = data.reduce((sum, item) => sum + item.total, 0)
+  return data.map(item => ({
+    category: item.category,
+    amount: item.total,
+    percentage: totalAmount > 0 ? (item.total / totalAmount) * 100 : 0,
+    subscriptionCount: item.subscriptionCount
+  }))
+}
 
 /**
  * 权限控制的费用报告页面组件
@@ -38,10 +86,6 @@ export function PermissionControlledExpenseReports() {
 
   // Filter states
   const [selectedDateRange] = useState('Last 12 Months')
-  const [selectedYearlyDateRange] = useState(() => {
-    const currentYear = new Date().getFullYear()
-    return `${currentYear - 2} - ${currentYear}`
-  })
 
   // 初始化数据
   const initializeData = useCallback(async () => {
@@ -56,11 +100,11 @@ export function PermissionControlledExpenseReports() {
   }, [initializeData])
 
   // 日期范围设置
-  const dateRangePresets = getDateRangePresets()
+  const dateRangePresets = useMemo(() => getDateRangePresets(), [])
   const currentDateRange = useMemo(() => {
     return dateRangePresets.find(preset => preset.label === selectedDateRange)
       || dateRangePresets[2] // Default to Last 12 Months
-  }, [selectedDateRange])
+  }, [selectedDateRange, dateRangePresets])
 
   const yearlyDateRangePresets = useMemo(() => {
     const now = new Date()
@@ -213,8 +257,13 @@ export function PermissionControlledExpenseReports() {
         {/* 费用概览信息卡片 - 所有用户都可以看到基础信息 */}
         {rawExpenseInfoData && (
           <ExpenseInfoCards 
-            data={rawExpenseInfoData}
-            showAdvanced={advancedPermission.hasPermission(Permission.VIEW_ADVANCED_ANALYTICS)}
+            monthlyData={adaptExpenseInfoData(rawExpenseInfoData.monthly, 'monthly')}
+            quarterlyData={adaptExpenseInfoData(rawExpenseInfoData.quarterly, 'quarterly')}
+            yearlyData={adaptExpenseInfoData(rawExpenseInfoData.yearly, 'yearly')}
+            currency={userCurrency}
+            hasMonthlyPermission={monthlyPermission.hasPermission(Permission.VIEW_MONTHLY_EXPENSES)}
+            hasQuarterlyPermission={quarterlyPermission.hasPermission(Permission.VIEW_QUARTERLY_EXPENSES)}
+            hasYearlyPermission={yearlyPermission.hasPermission(Permission.VIEW_YEARLY_EXPENSES)}
           />
         )}
 
@@ -229,7 +278,7 @@ export function PermissionControlledExpenseReports() {
                 <CardContent>
                   {monthlyExpenses && monthlyExpenses.length > 0 ? (
                     <ExpenseTrendChart 
-                      data={monthlyExpenses} 
+                      data={adaptMonthlyExpenseData(monthlyExpenses)} 
                       currency={userCurrency}
                     />
                   ) : (
@@ -269,7 +318,7 @@ export function PermissionControlledExpenseReports() {
               <CardContent>
                 {yearlyExpenses && yearlyExpenses.length > 0 ? (
                   <YearlyTrendChart 
-                    data={yearlyExpenses} 
+                    data={adaptYearlyExpenseData(yearlyExpenses)} 
                     currency={userCurrency}
                   />
                 ) : (
@@ -293,7 +342,7 @@ export function PermissionControlledExpenseReports() {
                 <CardContent>
                   {categoryExpenses && categoryExpenses.length > 0 ? (
                     <CategoryPieChart 
-                      data={categoryExpenses} 
+                      data={adaptCategoryExpenseData(categoryExpenses)} 
                       currency={userCurrency}
                     />
                   ) : (
