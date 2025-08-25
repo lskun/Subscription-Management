@@ -15,10 +15,11 @@ import {
   Star,
   Globe,
   Smartphone,
-  TrendingUp,
   User,
   LogOut,
-  Settings
+  Settings,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -34,7 +35,7 @@ import { LoginModal } from '@/components/auth/LoginModal'
 const features = [
   {
     icon: CreditCard,
-    title: 'Smart Subscription Management',
+    title: 'Smart Subscriptions',
     description: 'Easily add, edit, and track all your subscription services with support for multiple billing cycles and currencies'
   },
   {
@@ -91,22 +92,23 @@ const screenshots = [
   {
     title: 'Dashboard Overview',
     description: 'Clear expense statistics and subscription status at a glance',
-    image: '/api/placeholder/600/400'
+    image: '/docs/images/dashboard-overview.png'
   },
   {
     title: 'Subscription Management',
     description: 'Simple and intuitive subscription adding and editing interface',
-    image: '/api/placeholder/600/400'
+    image: '/docs/images/subscriptions-overview.png'
   },
   {
     title: 'Analytics & Reports',
     description: 'Rich charts and trend analysis for better insights',
-    image: '/api/placeholder/600/400'
+    image: '/docs/images/reports-overview.png'
   }
 ]
 
 export function LandingPage() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false)
+  const [currentSlide, setCurrentSlide] = useState(0)
   const navigate = useNavigate()
   const { user, loading, signOut } = useAuth()
 
@@ -123,6 +125,22 @@ export function LandingPage() {
   const handleLoginSuccess = () => {
     setIsLoginModalOpen(false)
     navigate('/dashboard')
+  }
+
+  // 轮播图自动播放效果
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % screenshots.length)
+    }, 4000)
+    return () => clearInterval(timer)
+  }, [])
+
+  const nextSlide = () => {
+    setCurrentSlide((prev) => (prev + 1) % screenshots.length)
+  }
+
+  const prevSlide = () => {
+    setCurrentSlide((prev) => (prev - 1 + screenshots.length) % screenshots.length)
   }
 
   // 移除全局loading状态的条件渲染，改为在组件内部显示loading状态
@@ -225,12 +243,12 @@ export function LandingPage() {
 
       {/* Hero Section */}
       <section className="relative py-8 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-5xl mx-auto text-center">
-          <div className="mb-6">
+        <div className="max-w-6xl mx-auto text-center">
+          <div className="mb-8">
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-white mb-6 leading-tight">
-              Take Control of Your
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600 block sm:inline">
-                {' '}Subscriptions
+              Take Control of Your{' '}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
+                Subscriptions
               </span>
             </h1>
             <p className="text-lg text-gray-600 dark:text-gray-300 mb-8 max-w-2xl mx-auto leading-relaxed">
@@ -299,9 +317,91 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* Product Preview */}
+      <section className="py-10 bg-gray-50 dark:bg-gray-900">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-10">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-3">
+              Clean Interface, Clear Insights
+            </h2>
+            <p className="text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
+              Thoughtfully designed interface that makes complex data simple to understand
+            </p>
+          </div>
+
+          {/* 轮播图容器 */}
+          <div className="relative">
+            <div className="overflow-hidden rounded-2xl shadow-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+              {/* 图片容器 */}
+              <div className="relative h-[500px]">
+                <div 
+                  className="flex transition-transform duration-500 ease-in-out"
+                  style={{ transform: `translateX(-${currentSlide * 100}%)` }}
+                >
+                  {screenshots.map((screenshot, index) => (
+                    <div key={index} className="w-full flex-shrink-0 h-full">
+                      <img
+                        src={screenshot.image}
+                        alt={screenshot.title}
+                        className="w-full h-full object-contain bg-gray-50 dark:bg-gray-900"
+                        loading="lazy"
+                      />
+                    </div>
+                  ))}
+                </div>
+                
+                {/* 导航按钮 */}
+                <button
+                  onClick={prevSlide}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full transition-colors duration-200"
+                  aria-label="Previous image"
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
+                <button
+                  onClick={nextSlide}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/50 hover:bg-black/70 text-white p-2 rounded-full transition-colors duration-200"
+                  aria-label="Next image"
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              </div>
+              
+              {/* 信息面板 */}
+              <div className="p-6">
+                <div className="text-center">
+                  <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                    {screenshots[currentSlide].title}
+                  </h3>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    {screenshots[currentSlide].description}
+                  </p>
+                </div>
+                
+                {/* 指示器 */}
+                <div className="flex justify-center mt-4 space-x-2">
+                  {screenshots.map((_, index) => (
+                    <button
+                      key={index}
+                      onClick={() => setCurrentSlide(index)}
+                      className={`w-2 h-2 rounded-full transition-colors duration-200 ${
+                        index === currentSlide
+                          ? 'bg-blue-600'
+                          : 'bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500'
+                      }`}
+                      aria-label={`Go to slide ${index + 1}`}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Features Section */}
-      <section id="features" className="py-12 bg-white dark:bg-gray-800">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section id="features" className="py-10 bg-white dark:bg-gray-800">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-10">
             <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-3">
               Powerful Features, Simple Design
@@ -315,12 +415,14 @@ export function LandingPage() {
             {features.map((feature, index) => (
               <Card key={index} className="border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all duration-200 hover:border-blue-300 dark:hover:border-blue-600">
                 <CardHeader className="pb-3">
-                  <div className="w-10 h-10 bg-blue-50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center mb-3">
-                    <feature.icon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  <div className="flex items-center space-x-3 mb-3">
+                    <div className="w-10 h-10 bg-blue-50 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+                      <feature.icon className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white">
+                      {feature.title}
+                    </CardTitle>
                   </div>
-                  <CardTitle className="text-lg font-semibold text-gray-900 dark:text-white">
-                    {feature.title}
-                  </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0">
                   <CardDescription className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed">
@@ -333,44 +435,9 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Product Preview */}
-      <section className="py-12 bg-gray-50 dark:bg-gray-900">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-10">
-            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-3">
-              Clean Interface, Clear Insights
-            </h2>
-            <p className="text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
-              Thoughtfully designed interface that makes complex data simple to understand
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {screenshots.map((screenshot, index) => (
-              <Card key={index} className="overflow-hidden border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow duration-200">
-                <div className="aspect-video bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 flex items-center justify-center border-b border-gray-200 dark:border-gray-700">
-                  <div className="text-center">
-                    <TrendingUp className="h-12 w-12 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Preview</p>
-                  </div>
-                </div>
-                <CardHeader className="p-4">
-                  <CardTitle className="text-base font-semibold text-gray-900 dark:text-white">
-                    {screenshot.title}
-                  </CardTitle>
-                  <CardDescription className="text-sm text-gray-600 dark:text-gray-300">
-                    {screenshot.description}
-                  </CardDescription>
-                </CardHeader>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
       {/* Testimonials */}
-      <section className="py-12 bg-white dark:bg-gray-800">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="py-10 bg-white dark:bg-gray-800">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-10">
             <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-3">
               Loved by Users Worldwide
@@ -415,61 +482,119 @@ export function LandingPage() {
       </section>
 
       {/* Pricing Section */}
-      <section className="py-12 bg-gradient-to-r from-blue-600 to-purple-600">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+      <section className="py-10 bg-gradient-to-br from-blue-600 via-purple-600 to-indigo-700">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">
-            Completely Free Forever
+            Choose Your Perfect Plan
           </h2>
-          <p className="text-blue-100 mb-6 max-w-xl mx-auto">
-            We believe everyone deserves great subscription management. Sign up now and enjoy all features at no cost.
+          <p className="text-blue-100 mb-10 max-w-2xl mx-auto">
+            Start free and upgrade as you grow. Professional subscription management for individuals and teams.
           </p>
           
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-sm mx-auto shadow-2xl">
-            <div className="mb-6">
-              <div className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
-                $0
-                <span className="text-base font-normal text-gray-600 dark:text-gray-300">/month</span>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
+            {/* Free Plan */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-2xl border-2 border-gray-200 dark:border-gray-700">
+              <div className="mb-6">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Free</h3>
+                <div className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                  $0
+                  <span className="text-base font-normal text-gray-600 dark:text-gray-300">/month</span>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-300">Perfect for personal use</p>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-300">Forever free</p>
+              
+              <ul className="space-y-3 mb-8 text-left">
+                <li className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Up to 10 subscriptions</span>
+                </li>
+                <li className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Basic analytics</span>
+                </li>
+                <li className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Renewal reminders</span>
+                </li>
+                <li className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Multi-currency support</span>
+                </li>
+              </ul>
+              
+              <Button 
+                onClick={user ? () => navigate('/dashboard') : () => setIsLoginModalOpen(true)}
+                variant="outline"
+                className="w-full border-2 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-900/20"
+              >
+                {user ? 'Current Plan' : 'Get Started Free'}
+              </Button>
             </div>
-            
-            <ul className="space-y-2.5 mb-6 text-left">
-              <li className="flex items-center space-x-2.5">
-                <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-                <span className="text-sm text-gray-700 dark:text-gray-300">Unlimited subscriptions</span>
-              </li>
-              <li className="flex items-center space-x-2.5">
-                <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-                <span className="text-sm text-gray-700 dark:text-gray-300">Advanced analytics</span>
-              </li>
-              <li className="flex items-center space-x-2.5">
-                <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-                <span className="text-sm text-gray-700 dark:text-gray-300">Smart renewal alerts</span>
-              </li>
-              <li className="flex items-center space-x-2.5">
-                <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-                <span className="text-sm text-gray-700 dark:text-gray-300">Multi-currency support</span>
-              </li>
-              <li className="flex items-center space-x-2.5">
-                <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
-                <span className="text-sm text-gray-700 dark:text-gray-300">Data import & export</span>
-              </li>
-            </ul>
-            
-            <Button 
-              onClick={user ? () => navigate('/dashboard') : () => setIsLoginModalOpen(true)}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              {user ? 'Go to Dashboard' : 'Get Started Free'}
-              <Zap className="ml-2 h-4 w-4" />
-            </Button>
+
+            {/* Premium Plan */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-2xl border-2 border-yellow-400 relative">
+              <div className="absolute -top-4 left-1/2 transform -translate-x-1/2">
+                <Badge className="bg-gradient-to-r from-yellow-400 to-orange-500 text-black px-4 py-1 text-sm font-semibold">
+                  Most Popular
+                </Badge>
+              </div>
+              
+              <div className="mb-6">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Premium</h3>
+                <div className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+                  $9.99
+                  <span className="text-base font-normal text-gray-600 dark:text-gray-300">/month</span>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-300">For power users & teams</p>
+              </div>
+              
+              <ul className="space-y-3 mb-8 text-left">
+                <li className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Unlimited subscriptions</span>
+                </li>
+                <li className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Advanced analytics & reports</span>
+                </li>
+                <li className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Smart AI insights</span>
+                </li>
+                <li className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Team collaboration</span>
+                </li>
+                <li className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Priority support</span>
+                </li>
+                <li className="flex items-center space-x-3">
+                  <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Custom integrations</span>
+                </li>
+              </ul>
+              
+              <Button 
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
+              >
+                Upgrade to Premium
+                <Zap className="ml-2 h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-8 text-center">
+            <p className="text-blue-100 text-sm">
+              All plans include 30-day money-back guarantee • Cancel anytime • No hidden fees
+            </p>
           </div>
         </div>
       </section>
 
       {/* Footer */}
       <footer className="bg-gray-900 text-white py-8">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="col-span-1 md:col-span-2">
               <div className="flex items-center space-x-3 mb-3">
