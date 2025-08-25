@@ -92,17 +92,17 @@ const screenshots = [
   {
     title: 'Dashboard Overview',
     description: 'Clear expense statistics and subscription status at a glance',
-    image: '/docs/images/dashboard-overview.png'
+    image: '/images/dashboard-overview.png'
   },
   {
     title: 'Subscription Management',
     description: 'Simple and intuitive subscription adding and editing interface',
-    image: '/docs/images/subscriptions-overview.png'
+    image: '/images/subscriptions-overview.png'
   },
   {
     title: 'Analytics & Reports',
     description: 'Rich charts and trend analysis for better insights',
-    image: '/docs/images/reports-overview.png'
+    image: '/images/reports-overview.png'
   }
 ]
 
